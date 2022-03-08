@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
+#include <sys/siginfo.h>
+#include <signal.h>
 
 // Define Constants
 #define ONE_THOUSAND	1000
@@ -15,6 +17,46 @@
 #define PERIOD 5000000
 
 sigset_t sigst;
+
+struct timespec { 
+    long tv_sec, tv_nsec;
+};
+
+// NOTE: Not in original file, Might Not Be Needed
+// Create Notification Structure by Signal, Pulse, or Thread 
+// Informs Kernel of Event to Deliver
+struct sigevent {
+    // Define Method of Notification
+    int sigev_notify;
+
+    // Define Another Data Type Using Union
+    union {
+        int sigev_signo;
+        int sigev_coid;
+        int sigev_id;
+        void (*sigev_notify_function)(union sigval)
+    };
+
+    union sigval sigev_value;
+
+    union {
+        struct {
+            short sigev_code;
+            short sigev_priority;
+        };
+
+        pthread_attr_t *sigev_notify_attributes;
+    };
+};
+
+// Create Timer Set Off Time
+// - Timer Goes Off/Triggered First Time At it_value (One Shot Value)
+// - Reload Timer with Relative Value it_interval (Reload Value), Gets Trigger/Go Off Again Every it_interval
+// Note: Use 0 as it_interval for One Shot Timer 
+// Note: Set it_value and it_interval to Period for Pure Periodic Timer
+struct itimerspec { 
+    struct timespec it_value, it_interval; 
+};
 
 static void wait_next_activation(void) {
     // Use Timer to Wait for Expiration Signal Before Executing Task
@@ -99,46 +141,3 @@ int main (int argc, char *argv[]) {
 	
 	return 0;
 }
-
-
-/*
-// TODO: Watch Tutorial ...
-// Create Notification Structure by Signal, Pulse, or Thread 
-// Informs Kernel of Event to Deliver
-struct sigevent {
-    // Define Method of Notification
-    int sigev_notify;
-
-    // Define Another Data Type Using Union
-    union {
-        int sigev_signo;
-        int sigev_coid;
-        int sigev_id;
-        void (*sigev_notify_function)(union sigval)
-    }
-
-    union sigval sigev_value;
-
-    union {
-        struct {
-            short sigev_code;
-            short sigev_priority;
-        }
-
-        pthread_attr_t *sigev_notify_attributes;
-    }
-}
-
-// Create Timer Set Off Time
-// - Timer Goes Off/Triggered First Time At it_value (One Shot Value)
-// - Reload Timer with Relative Value it_interval (Reload Value), Gets Trigger/Go Off Again Every it_interval
-// Note: Use 0 as it_interval for One Shot Timer 
-// Note: Set it_value and it_interval to Period for Pure Periodic Timer
-struct itimerspec { 
-    struct timespec it_value, it_interval; 
-};
-
-struct timespec { 
-    long tv_sec, tv_nsec;
-};
-*/

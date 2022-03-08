@@ -2,6 +2,8 @@
   "files.associations": {
     "iostream": "cpp",
     "string": "cpp",
-    "fstream": "cpp"
+    "fstream": "cpp",
+    "signal.h": "c",
+    "time.h": "c"
   }
 }

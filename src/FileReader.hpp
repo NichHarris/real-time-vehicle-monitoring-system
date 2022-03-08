@@ -12,6 +12,7 @@ using namespace std;
 
 class FileReader {
     private:
+        // Data Read and File Reader
         double data;
         fstream reader;
 

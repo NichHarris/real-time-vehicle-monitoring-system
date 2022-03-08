@@ -1,35 +1,53 @@
+#include <thread>
 #include <iostream>
+#include <ctime>
 
 using namespace std;
 
-// Creating a Clock Singleton to Count Time, Running on a Thread
-class Clock {
+#include "Clock.hpp"
 
-    // Create Singleton Clock Instance
-    static Clock *instance;
+// Constructor - Initializes Singleton Clock to Count Time, Running on Thread
+Clock::Clock() {
+    time = 0;
+    instance = new Clock();
+    cout << "New clock object created" << endl;
+}
 
-    // Store Time in ms
-    int time;
+// Destructor
+Clock::~Clock() {
+    cout << "Clock Object is Deleted!" << endl;
+}
 
-    // Default Constructor - Initializes Clock to Time 0ms
-    Clock() {
-        time = 0;
-        instance = new Clock();
+Clock* Clock::getInstance() {
+    return instance;
+}
+
+// Get Current Clock Time
+int Clock::getTime() {
+    return time;
+}
+
+// Increment Current Clock
+void Clock::setTime() {
+    time = time + 10;
+}
+
+
+// Thread Methods
+thread Clock::startThread() {
+    thread clockThread = thread([=] { run(); });
+    //handle = clockThread.native_handle();
+    return clockThread;
+}
+
+void Clock::run(){
+    while(true) {
+        // Update Clock time here...
+        time = clock();
     }
+}
 
-    public:
-        // Return Clock Instance
-        static Clock *getInstance() {
-            return instance;
-        }
+void Clock::terminate(){
+    //TerminateThread(handle, 0);
+}
 
-        // Get Current Clock Time
-        int getTime() {
-            return time;
-        }
-
-        // Increment Current Clock
-        void setTime() {
-            time = time + 10;
-        }
-};

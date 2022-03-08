@@ -7,9 +7,6 @@
 
 using namespace std;
 
-// Create Clock
-//atomic<int> CLOCK{0};
-
 int main(){
     FileReader fr("./Data/Current_Gear.csv");
 
