@@ -3,5 +3,6 @@
     "iostream": "cpp",
     "string": "cpp",
     "fstream": "cpp"
-  }
+  },
+  "python.pythonPath": "C:\\Python27\\python.exe"
 }
