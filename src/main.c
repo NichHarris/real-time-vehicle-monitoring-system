@@ -153,7 +153,7 @@ int main (int argc, char *argv[]) {
 
 // Start Routine for Customized Thread
 // TODO: Create One for Producer and Consumer
-void *threadCustomized (void *arg) {
+void *threadProducer (void *arg) {
 	int policy;
 	int detachstate;
 	printf("A thread with customized attributes is created!\n");
@@ -178,7 +178,7 @@ void *threadCustomized (void *arg) {
 	return NULL;
 }
 
-void *threadCustomized (void *arg) {
+void *threadConsumer (void *arg) {
 	int policy;
 	int detachstate;
 	printf("A thread with customized attributes is created!\n");
