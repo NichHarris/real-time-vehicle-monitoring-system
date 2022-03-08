@@ -105,6 +105,9 @@ const char* getfield(char* line, int num) {
     return NULL;
 }
 
+// Store Current Time from Real-time Clock
+uint64_t currentTime;
+
 // Define Global Thread Attribute to Specify Characteristics of POSIX (Portable Operating System Interface) Thread
 pthread_attr_t attr;
 
@@ -183,26 +186,33 @@ void *threadProducer (void *arg) {
 		// Then Perform Msg Passing
 
 		// Determine File Name using Variable of Interest 
-		if(voi = 1) {
-			// Fuel Consumption (0x01)
-			fileName = "./"
-		} else if(voi = 2) {
-			// Engine Spped in RPM (0x02)
-			fileName = "./"
-		} else if(voi = 3) {
-			//Engine Coolant Temperature (0x03)
-			fileName = "./"
-		} else if(voi = 4) {
-			// Current Gear (0x04)
-			fileName = "./"
-		} else if(voi = 5) {
-			// Vehicle Speed (0x05)
-			fileName = "./"
-		} else {
-			printf(voi);
-			printf("WTFF");
+		switch (voi) {
+			case 1:
+				// Fuel Consumption (0x01)
+				fileName = "./data/Fuel_Consumption.csv";
+				break;
+			case 2:
+				// Engine Speed in RPM (0x02)
+				fileName = "./data/Engine_Speed.csv";
+				break;
+			case 3:
+				// Engine Coolant Temperature (0x03)
+				fileName = "./data/Engine_Coolant_Temperature.csv";
+				break;
+			case 4:
+				// Current Gear (0x04)
+				fileName = "./Current_Gear.csv";
+				break;
+			case 5:
+				// Vehicle Speed (0x05)
+				fileName = "./data/Vehicle_Speed.csv";
+				break;
+			default:
+				// Potential Error
+				printf(voi);
+				break;
 		}
-
+		
 		// Read 
 
 
@@ -223,7 +233,15 @@ void *threadConsumer (void *arg) {
 		// TODO: Consume Data from Producer
 		// Perform message passing
 		// Wait for all data before printing all the data
-		printf("Consuming!");
+
+
+		// Print All Variables of Interest
+		// printf("Current Time:  %f\n", currentTime);
+		// printf("Fuel Consumption: %f\n", fuelConsumption);
+		// printf("Engine Speed: %d\n", engineSpeed);
+		// printf("Engine Coolant Temperature: %d\n", engineCoolantTemperature);
+		// printf("Current Gear: %d\n", currentGear);
+		// printf("Vehicle Speed: %d\n", vehicleSpeed);
 	}
 
 	pthread_exit(NULL);
@@ -285,12 +303,13 @@ int start_periodic_timer(uint64_t offset, int period) {
 }
 
 // Update Current Time using Real time Clock adapted from timers_code.c
-static void task_body(void) {
-	uint64_t current;
+static void task_body(void) {	
+	// Get Current Time from Real Time Clock
 	struct timespec tv;
-	
 	clock_gettime(CLOCK_REALTIME, &tv);
-	current = tv.tv_sec * ONE_THOUSAND + tv.tv_nsec / ONE_MILLION;	
+
+	// Update Current Time
+	currentTime = tv.tv_sec * ONE_THOUSAND + tv.tv_nsec / ONE_MILLION;	
 }
 
 
