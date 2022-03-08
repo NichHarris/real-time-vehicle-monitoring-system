@@ -1,4 +1,5 @@
 #include <sys/time.h>
+#include <sys/neutrino.h>
 #include <signal.h>
 #include <time.h>
 #include <stdlib.h>
@@ -87,16 +88,13 @@ const char* getfield(char* line, int num) {
 #define NUM_PRODUCER_THREADS 5
 
 
+// Define Global Thread Attribute to Specify Characteristics of POSIX (Portable Operating System Interface) Thread
+pthread_attr_t attr;
 
-
-//The sigset_t data type is used to represent a signal set. Internally, it may be implemented as either an integer or structure type. 
+// Define Global Signal Set
 sigset_t sigst;
 
-
-int main (int argc, char *argv[]) {	
-    // Define Thread Attribute to Specify Characteristics of POSIX (Portable Operating System Interface) Thread
-    pthread_attr_t attr;
-
+int main (int argc, char *argv[]) {
     // Define Return Code to Validate Thread Initialization and Creation
     // 0: Successful, -1: Unsuccessful
     int rc;
@@ -104,30 +102,44 @@ int main (int argc, char *argv[]) {
     // Instantiate Consumer and Producer POSIX Threads
 	pthread_t consumer, producers[NUM_PRODUCER_THREADS];
 
-    // TODO: What to modify in attributes
-    // Change Detach State to Joinable to Be Able to Use Join
+	// Initialize Default Attributes of POSIX Threads
+	rc = pthread_attr_init(&attr);
+	if (rc) {
+		printf("Error: Failed to initialize pthread attributes with error code %d!\n", rc);
+		return -1;
+	}
+	
+    // Updating Thread Attributes
+    // Set Detach State to Joinable to Be Able to Use Join
 	rc = pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
-	if (rc)
-		printf("Error: Failed to update thread attributes with error code %d!\n", rc);
-	
-    // Create Consumer Thread with Custom Attributes (Customized Thread)
-    // Pass Thread Pointer to Provide Thread Id to Created Thread
+	if (rc) {
+		printf("Error: Failed to set thread detach state with error code %d!\n", rc);
+		return -1;
+	}
+
+    // Create Consumer Thread
+    // - Pass Thread Pointer to Provide Thread Id to Created Thread
+	// - Pass Customized Attributes to Create Custom Thread
+	// - Pass Start Routine and Arguments to Routine
 	rc = pthread_create(&consumer, &attr, threadConsumer, NULL);
-	if (rc)
+	if (rc) {
 		printf("Error: Failed to create consumer thread with error code %d!\n", rc);
-	
+		return -1;
+	}
+
+	//Fuel consumption (0x01), 
+	//Engine Spped in RPM (0x02), 
+	//Engine Coolant Temperature (0x03), Current Gear (0x04), Vehicle Speed (0x05)	
+
     // Create Producers Threads
-	for(int i = 0; i < NUM_PRODUCER_THREADS - 1; i++) {
-        // TODO: Update arg to pass to threadProducer (4th arg)
-		rc = pthread_create(&producers[i], &attr, threadProducer, NULL);
+	// - Pass Thread Index as Argument to Specify Desired Data
+	for(int i = 0; i < NUM_PRODUCER_THREADS; i++) {
+		rc = pthread_create(&producers[i], &attr, threadProducer, i);
         if (rc)
 		    printf("Error: Failed to create producer thread with error code %d!\n", rc);
     }
 
-    // Synchronize Threads using Join
-    // Suggestion: Use Timers/Counters over Sleep 
-	//pthread_join(threadD, NULL);
-	pthread_join(threadC, NULL);
+    // Synchronize Threads using Timer/Counter
 
     // Create and Active Periodic Timer
 	int res = start_periodic_timer(OFFSET, PERIOD);
@@ -151,8 +163,7 @@ int main (int argc, char *argv[]) {
 	return 0;
 }
 
-// Start Routine for Customized Thread
-// TODO: Create One for Producer and Consumer
+// Producer Thread Routine
 void *threadProducer (void *arg) {
 	int policy;
 	int detachstate;
