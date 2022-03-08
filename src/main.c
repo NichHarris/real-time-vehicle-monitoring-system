@@ -8,6 +8,16 @@
 #include <stdio.h>
 #include <pthread.h>
 
+/*
+TODO: 
+- Fix Scheduling of Producer and Consumer Threads/Tasks using Clock
+--> might have issue with wait_next_activation
+- Work on getting file name, then reading specific file
+- Perform Message Passing on Producer
+- Perform Message Passing on Consumer
+- Print in Consumer the Data!
+*/
+
 // 94380 rows containing sensor data and 5 columns of interest in the dataset
 #define NUM_ROWS 94380
 #define NUM_COLUMNS 5
@@ -190,7 +200,7 @@ void *threadProducer (void *arg) {
 			fileName = "./"
 		} else {
 			printf(voi);
-			printf("WTFF")
+			printf("WTFF");
 		}
 
 		// Read 
@@ -198,7 +208,7 @@ void *threadProducer (void *arg) {
 
 		// Msg Pass
 
-		printf("Producing!")
+		printf("Producing!");
 	}
 
 	pthread_exit(NULL);
@@ -213,7 +223,7 @@ void *threadConsumer (void *arg) {
 		// TODO: Consume Data from Producer
 		// Perform message passing
 		// Wait for all data before printing all the data
-		printf("Consuming!")
+		printf("Consuming!");
 	}
 
 	pthread_exit(NULL);
@@ -224,7 +234,7 @@ void *threadConsumer (void *arg) {
 static void wait_next_activation(void) {
     // Use Timer to Wait for Expiration Signal Before Executing Task
     // - Suspend Thread until Timer Sends Signal to Execute Thread
-	int dummy; //TODO: Ask why dummy is empty
+	int dummy; //TODO: Ask why dummy is empty to TA!
 	sigwait(&sigst, &dummy);
 }
 
