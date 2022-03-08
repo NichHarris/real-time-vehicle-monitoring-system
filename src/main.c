@@ -105,15 +105,7 @@ int main (int argc, char *argv[]) {
 	// Initialize Default Attributes of POSIX Threads
 	rc = pthread_attr_init(&attr);
 	if (rc) {
-		printf("Error: Failed to initialize pthread attributes with error code %d!\n", rc);
-		return -1;
-	}
-	
-    // Updating Thread Attributes
-    // Set Detach State to Joinable to Be Able to Use Join
-	rc = pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
-	if (rc) {
-		printf("Error: Failed to set thread detach state with error code %d!\n", rc);
+		printf("Error %d: Failed to initialize pthread attributes! \n", rc);
 		return -1;
 	}
 
@@ -123,28 +115,30 @@ int main (int argc, char *argv[]) {
 	// - Pass Start Routine and Arguments to Routine
 	rc = pthread_create(&consumer, &attr, threadConsumer, NULL);
 	if (rc) {
-		printf("Error: Failed to create consumer thread with error code %d!\n", rc);
+		printf("Error %d: Failed to create consumer thread! \n", rc);
 		return -1;
 	}
 
 	//Fuel consumption (0x01), 
 	//Engine Spped in RPM (0x02), 
-	//Engine Coolant Temperature (0x03), Current Gear (0x04), Vehicle Speed (0x05)	
+	//Engine Coolant Temperature (0x03), 
+	//Current Gear (0x04), 
+	//Vehicle Speed (0x05)	
 
     // Create Producers Threads
 	// - Pass Thread Index as Argument to Specify Desired Data
 	for(int i = 0; i < NUM_PRODUCER_THREADS; i++) {
-		rc = pthread_create(&producers[i], &attr, threadProducer, i);
-        if (rc)
-		    printf("Error: Failed to create producer thread with error code %d!\n", rc);
+		rc = pthread_create(&producers[i], &attr, threadProducer, i + 1);
+        if (rc) {
+		    printf("Error %d: Failed to create producer thread #%d! \n", rc, i);
+			return -1;
+		}
     }
 
-    // Synchronize Threads using Timer/Counter
-
-    // Create and Active Periodic Timer
+    // Create and Active Periodic Timer to Synchronize Threads
 	int res = start_periodic_timer(OFFSET, PERIOD);
 	if (res < 0 ) {
-		perror("Error: Start periodic timer failed");
+		printf("Error %d: Failed to create and activate periodic timer!", res);
 		return -1;
 	}
 	
@@ -165,51 +159,34 @@ int main (int argc, char *argv[]) {
 
 // Producer Thread Routine
 void *threadProducer (void *arg) {
-	int policy;
-	int detachstate;
-	printf("A thread with customized attributes is created!\n");
-	
-	/* Print out detach state */
-	pthread_attr_getdetachstate(&attr, &detachstate);
-	printf (" Detach state: %s\n",
-	(detachstate == PTHREAD_CREATE_DETACHED) ?
-	"PTHREAD_CREATE_DETACHED" :
-	(detachstate == PTHREAD_CREATE_JOINABLE) ?
-	"PTHREAD_CREATE_JOINABLE" : "???");
-	
-	/* Print out scheduling policy*/	
-	pthread_attr_getschedpolicy(&attr, &policy);
-	printf (" Scheduling policy: %s\n\n",
-	(policy == SCHED_OTHER) ? "SCHED_OTHER" : 
-	(policy == SCHED_FIFO)	? "SCHED_FIFO"  :
-	(policy == SCHED_RR)	? "SCHED_RR" 	:
-	"???");
-	
+	// Print Producer Thread Number Passed from Arguments
+	printf("Producer Thread #%d Created!\n", arg);
+
+	while(1) {
+		// TODO: Produce Data based on Argument Passed
+		// Check arg and determine which file to read
+		// Then Perform Msg Passing
+		
+		
+		
+		printf("Producing!")
+	}
+
 	pthread_exit(NULL);
 	return NULL;
 }
 
+// Consumer Thread Routine
 void *threadConsumer (void *arg) {
-	int policy;
-	int detachstate;
-	printf("A thread with customized attributes is created!\n");
+	printf("Consumer Thread Created!\n");
 	
-	/* Print out detach state */
-	pthread_attr_getdetachstate(&attr, &detachstate);
-	printf (" Detach state: %s\n",
-	(detachstate == PTHREAD_CREATE_DETACHED) ?
-	"PTHREAD_CREATE_DETACHED" :
-	(detachstate == PTHREAD_CREATE_JOINABLE) ?
-	"PTHREAD_CREATE_JOINABLE" : "???");
-	
-	/* Print out scheduling policy*/	
-	pthread_attr_getschedpolicy(&attr, &policy);
-	printf (" Scheduling policy: %s\n\n",
-	(policy == SCHED_OTHER) ? "SCHED_OTHER" : 
-	(policy == SCHED_FIFO)	? "SCHED_FIFO"  :
-	(policy == SCHED_RR)	? "SCHED_RR" 	:
-	"???");
-	
+	while(1) {
+		// TODO: Consume Data from Producer
+		// Perform message passing
+		// Wait for all data before printing all the data
+		printf("Consuming!")
+	}
+
 	pthread_exit(NULL);
 	return NULL;
 }
@@ -224,7 +201,7 @@ static void wait_next_activation(void) {
 
 // Start periodic timer adapted from timers_code.c
 int start_periodic_timer(uint64_t offset, int period) {
-	// Instantiate Timer Object with Unique Timer Id
+	// Instantiate Timer Thread Object with Unique Timer Id
     timer_t timer;
 	
     // Specify Kind of Timer by Setting Timer Parameters
@@ -272,11 +249,11 @@ static void task_body(void) {
 	struct timespec tv;
 	
 	if (start == 0) {
-		clock_gettime(CLOCK_MONOTONIC, &tv);
+		clock_gettime(CLOCK_REALTIME, &tv);
 		start = tv.tv_sec * ONE_THOUSAND + tv.tv_nsec / ONE_MILLION;
 	}
 	
-	clock_gettime(CLOCK_MONOTONIC, &tv);
+	clock_gettime(CLOCK_REALTIME, &tv);
 	current = tv.tv_sec * ONE_THOUSAND + tv.tv_nsec / ONE_MILLION;
 	
 	if (cycles > 0) {
