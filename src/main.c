@@ -178,6 +178,31 @@ void *threadCustomized (void *arg) {
 	return NULL;
 }
 
+void *threadCustomized (void *arg) {
+	int policy;
+	int detachstate;
+	printf("A thread with customized attributes is created!\n");
+	
+	/* Print out detach state */
+	pthread_attr_getdetachstate(&attr, &detachstate);
+	printf (" Detach state: %s\n",
+	(detachstate == PTHREAD_CREATE_DETACHED) ?
+	"PTHREAD_CREATE_DETACHED" :
+	(detachstate == PTHREAD_CREATE_JOINABLE) ?
+	"PTHREAD_CREATE_JOINABLE" : "???");
+	
+	/* Print out scheduling policy*/	
+	pthread_attr_getschedpolicy(&attr, &policy);
+	printf (" Scheduling policy: %s\n\n",
+	(policy == SCHED_OTHER) ? "SCHED_OTHER" : 
+	(policy == SCHED_FIFO)	? "SCHED_FIFO"  :
+	(policy == SCHED_RR)	? "SCHED_RR" 	:
+	"???");
+	
+	pthread_exit(NULL);
+	return NULL;
+}
+
 // Wait for next activation adapted from timers_code.c
 static void wait_next_activation(void) {
     // Use Timer to Wait for Expiration Signal Before Executing Task
