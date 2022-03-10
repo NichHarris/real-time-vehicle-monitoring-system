@@ -198,12 +198,13 @@ void *threadProducer (void *arg) {
 		}
 		
 		// Read 
-
+		/* ASK: Do we need to place all file datapoints in array or can we read in the producer using the current clock time */
 
 		// Msg Pass
 
 
         // TODO: Use Timer to Wait for Expiration Before Executing Task
+		/* ASK: Do we use sigwait in each producer and consumer thread? */
         // async_wait_signal();
 
 		printf("Producing!");
@@ -244,8 +245,14 @@ static void async_wait_signal(void) {
     // Use Timer to Wait for Expiration Signal Before Executing Task
     // - Suspend Thread until Timer Sends Signal to Execute Thread
 	// Upon Receiving Signal, Signal Removed from Signal Set and Program Continues
-	int dummy; //TODO: Replace dummy with signal waiting for
-	sigwait(&sigst, &dummy);
+	int sig; /* ASK: Do we need to pass SIGEV_SIGNAL, replace sig with signal waiting for ? */
+	sigwait(&sigst, &sig); 
+	
+	/* ASK: Do we need to add the signal back to wait for next period after sigwait call ? */
+	//const int signal = SIGALRM;
+	//sigemptyset(&sigst);
+	//sigaddset(&sigst, signal);
+	//sigprocmask(SIG_BLOCK, &sigst, NULL);
 }
 
 // Create and Activate real-time timer to implement periodic tasks adapted from timers_code.c
@@ -255,7 +262,6 @@ int activate_realtime_clock(uint64_t offset, int period) {
 	
     // Instantiate Timer Specifications 
 	// -> Specifies Kind of Timer by Setting Timer Parameters
-    // Set it_value as offset and it_interval as period
 	// - Timer Goes Off/Triggered First Time at it_value (One Shot Value)
 	// - Timer Goes Off Trigger/Go Off Again Every it_interval - Reloads Timer with Relative Value (Reload Value)
     // Note: tv_sec Specifies Value in Seconds Position, tv_nsec Specifies Value in Nano Seconds Position
@@ -276,7 +282,7 @@ int activate_realtime_clock(uint64_t offset, int period) {
 	// -> Creates Notification Structure Using Signal Informing Kernel to Deliver Event
 	// Specify Signal Event Notify Function as SIGEV_SIGNAL and Signal Number as SIGALRM
     struct sigevent sigev;
-	memset(&sigev, 0, sizeof(struct sigevent));
+	memset(&sigev, 0, sizeof(struct sigevent)); /* ASK: Do we need to change memory size? */
 	sigev.sigev_notify = SIGEV_SIGNAL;
 	sigev.sigev_signo = signal;
 	
@@ -301,7 +307,7 @@ static void update_current_time(void) {
 
 	// Update Current Time
 	currentTime = tv.tv_sec * ONE_THOUSAND + tv.tv_nsec / ONE_MILLION;	
-	print(currentTime);
+	printf(currentTime);
 }
 
 
