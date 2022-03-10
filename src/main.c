@@ -11,7 +11,6 @@
 /*
 TODO: 
 - Fix Scheduling of Producer and Consumer Threads/Tasks using Clock
---> might have issue with wait_next_activation
 - Work on getting file name, then reading specific file
 - Perform Message Passing on Producer
 - Perform Message Passing on Consumer
@@ -32,7 +31,6 @@ TODO:
 // Define Constants
 #define ONE_THOUSAND	1000
 #define ONE_MILLION		1000000
-
 
 //-----
 // Define Thread Index for Each Producer 
@@ -86,6 +84,32 @@ void readDataset(int col, int param) {
         row++;
         free(tmp); // Free temporarily saved row
     }
+    fclose(file);
+}
+
+// TODO: Read and Wait for Signal to Continue
+void readVariableOfInterest(char[] filename) {
+    // Open and Read Specified File
+	FILE* file = fopen(filename, "r");
+    if (!file) {
+        perror("Error: File %s could not be opened!\n", filename);
+        exit(EXIT_FAILURE);
+    }
+
+	// Define Current Line Number and Data Value
+	int line = 0;
+    char val[10];
+
+	// Skip header (first line)
+	fgets(val, 10, file);
+
+	// Read File Line By Line
+    while (fgets(val, 10, file)) {
+		printf("Line %d: %s", line, val);
+        line++;
+    }
+
+	// Close File
     fclose(file);
 }
 
@@ -185,7 +209,7 @@ void *threadProducer (void *arg) {
 				break;
 			case 4:
 				// Current Gear (0x04)
-				fileName = "./Current_Gear.csv";
+				fileName = "./data/Current_Gear.csv";
 				break;
 			case 5:
 				// Vehicle Speed (0x05)
