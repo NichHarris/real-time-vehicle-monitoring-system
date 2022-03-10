@@ -51,9 +51,6 @@ TODO:
 #define NUM_PRODUCER_THREADS 5
 //---
 
-/* int with # of seconds elapsed to update sensor data each 1 second */
-int currentTime = 0;
-
 //array with use to hold data produced by the producer threads
 double produced[NUM_COLUMNS];
 
@@ -92,19 +89,6 @@ void readDataset(int col, int param) {
     fclose(file);
 }
 
-// --------------------- Change this (from Mark's code) ---------------------
-/* Extract specified column from extracted row of dataset
- * Function code adapted from https://stackoverflow.com/questions/12911299/read-csv-file-in-c */
-const char* getfield(char* line, int num) {
-    for (tok = strtok(line, ",");
-        tok && *tok;
-        tok = strtok(NULL, ",\n")) {
-        if (!--num)
-            return tok;
-    }
-    return NULL;
-}
-
 // Store Current Time from Real-time Clock
 uint64_t currentTime;
 
@@ -125,7 +109,7 @@ int main (int argc, char *argv[]) {
 	// Initialize Default Attributes of POSIX Threads
 	rc = pthread_attr_init(&attr);
 	if (rc) {
-		printf("Error %d: Failed to initialize pthread attributes! \n", rc);
+		perror("Error: Failed to initialize pthread attributes! \n";
 		return -1;
 	}
 
@@ -135,7 +119,7 @@ int main (int argc, char *argv[]) {
 	// - Pass Start Routine and Arguments to Routine
 	rc = pthread_create(&consumer, &attr, threadConsumer, NULL);
 	if (rc) {
-		printf("Error %d: Failed to create consumer thread! \n", rc);
+		perror("Error: Failed to create consumer thread! \n");
 		return -1;
 	}
 
@@ -144,23 +128,23 @@ int main (int argc, char *argv[]) {
 	for(int i = 0; i < NUM_PRODUCER_THREADS; i++) {
 		rc = pthread_create(&producers[i], &attr, threadProducer, i + 1);
         if (rc) {
-		    printf("Error %d: Failed to create producer thread #%d! \n", rc, i);
+		    perror("Error: Failed to create producer thread #%d! \n", i);
 			return -1;
 		}
     }
 
     // Create and Active Periodic Timer to Synchronize Threads
-	int res = start_periodic_timer(OFFSET, PERIOD);
+	int res = activate_realtime_clock(OFFSET, PERIOD);
 	if (res < 0 ) {
-		printf("Error %d: Failed to create and activate periodic timer!", res);
+		perror("Error: Failed to create and activate periodic timer!");
 		return -1;
 	}
 	
     // Main Loop
 	while (1) {
         // Use Timer to Wait for Expiration Before Executing Task
-        wait_next_activation();
-		task_body();
+        async_wait_signal();
+		update_current_time();
 	}
 
     // Cleanup After Completing Program
@@ -218,6 +202,10 @@ void *threadProducer (void *arg) {
 
 		// Msg Pass
 
+
+        // TODO: Use Timer to Wait for Expiration Before Executing Task
+        // async_wait_signal();
+
 		printf("Producing!");
 	}
 
@@ -236,28 +224,32 @@ void *threadConsumer (void *arg) {
 
 
 		// Print All Variables of Interest
-		// printf("Current Time:  %f\n", currentTime);
+		printf("Current Time:  %f\n", currentTime);
 		// printf("Fuel Consumption: %f\n", fuelConsumption);
 		// printf("Engine Speed: %d\n", engineSpeed);
 		// printf("Engine Coolant Temperature: %d\n", engineCoolantTemperature);
 		// printf("Current Gear: %d\n", currentGear);
 		// printf("Vehicle Speed: %d\n", vehicleSpeed);
+
+		// TODO: Use Timer to Wait for Expiration Before Executing Task
+        // async_wait_signal();
 	}
 
 	pthread_exit(NULL);
 	return NULL;
 }
 
-// Wait for next activation signal adapted from timers_code.c
-static void wait_next_activation(void) {
+// Asynchronous wait for next signal activation adapted from timers_code.c
+static void async_wait_signal(void) {
     // Use Timer to Wait for Expiration Signal Before Executing Task
     // - Suspend Thread until Timer Sends Signal to Execute Thread
-	int dummy; //TODO: Ask why dummy is empty to TA!
+	// Upon Receiving Signal, Signal Removed from Signal Set and Program Continues
+	int dummy; //TODO: Replace dummy with signal waiting for
 	sigwait(&sigst, &dummy);
 }
 
 // Create and Activate real-time timer to implement periodic tasks adapted from timers_code.c
-int start_periodic_timer(uint64_t offset, int period) {
+int activate_realtime_clock(uint64_t offset, int period) {
 	// Instantiate Timer Thread Object with Unique Timer Id
     timer_t timer;
 	
@@ -280,7 +272,6 @@ int start_periodic_timer(uint64_t offset, int period) {
 	sigaddset(&sigst, signal);
 	sigprocmask(SIG_BLOCK, &sigst, NULL);
 	
-   
 	// Instantiate Signal Event Structure (sigevent)
 	// -> Creates Notification Structure Using Signal Informing Kernel to Deliver Event
 	// Specify Signal Event Notify Function as SIGEV_SIGNAL and Signal Number as SIGALRM
@@ -303,13 +294,14 @@ int start_periodic_timer(uint64_t offset, int period) {
 }
 
 // Update Current Time using Real time Clock adapted from timers_code.c
-static void task_body(void) {	
+static void update_current_time(void) {	
 	// Get Current Time from Real Time Clock
 	struct timespec tv;
 	clock_gettime(CLOCK_REALTIME, &tv);
 
 	// Update Current Time
 	currentTime = tv.tv_sec * ONE_THOUSAND + tv.tv_nsec / ONE_MILLION;	
+	print(currentTime);
 }
 
 
@@ -319,7 +311,7 @@ const char* getfield(char*, int);
 void extractParameterValues(int, int);
 void *threadProducer(void *);
 void *threadConsumer(void *);
-static void wait_next_activation();
-int start_periodic_timer(uint64_t, int);
-int task_body(long);
+static void async_wait_signal();
+int activate_realtime_clock(uint64_t, int);
+int update_current_time(long);
 */
