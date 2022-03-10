@@ -1,5 +1,4 @@
 #include <sys/time.h>
-#include <sys/neutrino.h>
 #include <signal.h>
 #include <time.h>
 #include <stdlib.h>
@@ -17,6 +16,28 @@ TODO:
 - Print in Consumer the Data!
 */
 
+// Define Thread Index for Each Producer 
+#define FUEL_CONSUMPTION 0
+#define ENGINE_SPEED 1
+#define ENGINE_COOLANT_TEMP 2
+#define CURRENT_GEAR 3
+#define VEHICLE_SPEED 4
+
+// Define Constants for Timer Conversions
+#define THOUSAND	1000
+#define MILLION		1000000
+
+// Define Phase and Period for All Tasks
+// - Starting at 1s, Occuring Every 5s
+#define PHASE 1000000
+#define PERIOD 5000000
+
+// Define Number of Producer Threads
+#define NUM_PRODUCER_THREADS 5
+
+
+//---
+
 // 94380 rows containing sensor data and 5 columns of interest in the dataset
 #define NUM_ROWS 94380
 #define NUM_COLUMNS 5
@@ -27,27 +48,6 @@ TODO:
 #define COL_ENGINE_COOLANT_TEMP 18
 #define COL_CURRENT_GEAR 34
 #define COL_VEHICLE_SPEED 44
-
-// Define Constants
-#define ONE_THOUSAND	1000
-#define ONE_MILLION		1000000
-
-//-----
-// Define Thread Index for Each Producer 
-#define FUEL_CONSUMPTION 0
-#define ENGINE_SPEED 1
-#define ENGINE_COOLANT_TEMP 2
-#define CURRENT_GEAR 3
-#define VEHICLE_SPEED 4
-
-// Define Offset and Period for All Tasks
-// - Starting at 1s, Occuring Every 5s
-#define OFFSET 1000000 // 1 second
-#define PERIOD 5000000 // 5 seconds
-
-// Define Number of Producer Threads
-#define NUM_PRODUCER_THREADS 5
-//---
 
 //array with use to hold data produced by the producer threads
 double produced[NUM_COLUMNS];
@@ -87,12 +87,14 @@ void readDataset(int col, int param) {
     fclose(file);
 }
 
+//-----
+
 // TODO: Read and Wait for Signal to Continue
-void readVariableOfInterest(char[] filename) {
+void readVariableOfInterest(char* filename) {
     // Open and Read Specified File
 	FILE* file = fopen(filename, "r");
     if (!file) {
-        perror("Error: File %s could not be opened!\n", filename);
+        printf("Error: File %s could not be opened!\n", filename);
         exit(EXIT_FAILURE);
     }
 
@@ -122,105 +124,48 @@ pthread_attr_t attr;
 // Define Global Signal Set to Specify Set of Signals Affected
 sigset_t sigst;
 
-int main (int argc, char *argv[]) {
-    // Define Return Code to Validate Thread Initialization and Creation
-    // 0: Successful, -1: Unsuccessful
-    int rc;
-
-    // Instantiate Consumer and Producer POSIX Threads
-	pthread_t consumer, producers[NUM_PRODUCER_THREADS];
-
-	// Initialize Default Attributes of POSIX Threads
-	rc = pthread_attr_init(&attr);
-	if (rc) {
-		perror("Error: Failed to initialize pthread attributes! \n";
-		return -1;
+// Determine File Name using Variable of Interest Index
+char* getFileName(int voi) {
+	switch (voi) {
+		case 1:
+			// Fuel Consumption (0x01)
+			return "./data/Fuel_Consumption.csv";
+		case 2:
+			// Engine Speed in RPM (0x02)
+			return "./data/Engine_Speed.csv";
+		case 3:
+			// Engine Coolant Temperature (0x03)
+			return "./data/Engine_Coolant_Temperature.csv";
+		case 4:
+			// Current Gear (0x04)
+			return "./data/Current_Gear.csv";
+		case 5:
+			// Vehicle Speed (0x05)
+			return "./data/Vehicle_Speed.csv";
+		default:
+			// Potential Error
+			printf("Error: Provided value %d for file!", voi);
+			exit(EXIT_FAILURE);
 	}
-
-    // Create Consumer Thread
-    // - Pass Thread Pointer to Provide Thread Id to Created Thread
-	// - Pass Customized Attributes to Create Custom Thread
-	// - Pass Start Routine and Arguments to Routine
-	rc = pthread_create(&consumer, &attr, threadConsumer, NULL);
-	if (rc) {
-		perror("Error: Failed to create consumer thread! \n");
-		return -1;
-	}
-
-    // Create Producers Threads
-	// - Pass Thread Index as Argument to Specify Desired Data
-	for(int i = 0; i < NUM_PRODUCER_THREADS; i++) {
-		rc = pthread_create(&producers[i], &attr, threadProducer, i + 1);
-        if (rc) {
-		    perror("Error: Failed to create producer thread #%d! \n", i);
-			return -1;
-		}
-    }
-
-    // Create and Active Periodic Timer to Synchronize Threads
-	int res = activate_realtime_clock(OFFSET, PERIOD);
-	if (res < 0 ) {
-		perror("Error: Failed to create and activate periodic timer!");
-		return -1;
-	}
-	
-    // Main Loop
-	while (1) {
-        // Use Timer to Wait for Expiration Before Executing Task
-        async_wait_signal();
-		update_current_time();
-	}
-
-    // Cleanup After Completing Program
-    // Destroy Attribute Object and Terminate Thread
-	pthread_attr_destroy(&attr);
-	pthread_exit(NULL);
-	
-	return 0;
 }
 
 // Producer Thread Routine
 void *threadProducer (void *arg) {
+	// Get Variable of Interest (voi) Number Passed in Arguments
+	int voi = *((int *) arg); 
+	
 	// Print Producer Thread Number Passed from Arguments
-	printf("Producer Thread #%d Created!\n", arg);
+	printf("Producer Thread #%d Created!\n", voi);
 
-	// Define Variable of Interest using Passed Argument (voi)
-	int voi = arg; 
-	char fileName[];
+	// Determine File Name using Thread Id
+	char* filename = getFileName(voi);
+	printf("Producer Thread #%d: File Used %s!\n", voi, filename);
 
 	while(1) {
 		// TODO: Produce Data based on Argument Passed
 		// Check arg and determine which file to read
 		// Then Perform Msg Passing
 
-		// Determine File Name using Variable of Interest 
-		switch (voi) {
-			case 1:
-				// Fuel Consumption (0x01)
-				fileName = "./data/Fuel_Consumption.csv";
-				break;
-			case 2:
-				// Engine Speed in RPM (0x02)
-				fileName = "./data/Engine_Speed.csv";
-				break;
-			case 3:
-				// Engine Coolant Temperature (0x03)
-				fileName = "./data/Engine_Coolant_Temperature.csv";
-				break;
-			case 4:
-				// Current Gear (0x04)
-				fileName = "./data/Current_Gear.csv";
-				break;
-			case 5:
-				// Vehicle Speed (0x05)
-				fileName = "./data/Vehicle_Speed.csv";
-				break;
-			default:
-				// Potential Error
-				printf(voi);
-				break;
-		}
-		
 		// Read 
 		/* ASK: Do we need to place all file datapoints in array or can we read in the producer using the current clock time */
 
@@ -234,12 +179,13 @@ void *threadProducer (void *arg) {
 		printf("Producing!");
 	}
 
+	// Terminate Thread and Exit
 	pthread_exit(NULL);
 	return NULL;
 }
 
 // Consumer Thread Routine
-void *threadConsumer (void *arg) {
+void *threadConsumer() {
 	printf("Consumer Thread Created!\n");
 	
 	while(1) {
@@ -249,7 +195,7 @@ void *threadConsumer (void *arg) {
 
 
 		// Print All Variables of Interest
-		printf("Current Time:  %f\n", currentTime);
+		printf("Current Time:  %ld\n", currentTime);
 		// printf("Fuel Consumption: %f\n", fuelConsumption);
 		// printf("Engine Speed: %d\n", engineSpeed);
 		// printf("Engine Coolant Temperature: %d\n", engineCoolantTemperature);
@@ -260,6 +206,7 @@ void *threadConsumer (void *arg) {
         // async_wait_signal();
 	}
 
+	// Terminate Thread and Exit
 	pthread_exit(NULL);
 	return NULL;
 }
@@ -280,7 +227,7 @@ static void async_wait_signal(void) {
 }
 
 // Create and Activate real-time timer to implement periodic tasks adapted from timers_code.c
-int activate_realtime_clock(uint64_t offset, int period) {
+int activate_realtime_clock(uint64_t phase, int period) {
 	// Instantiate Timer Thread Object with Unique Timer Id
     timer_t timer;
 	
@@ -290,10 +237,10 @@ int activate_realtime_clock(uint64_t offset, int period) {
 	// - Timer Goes Off Trigger/Go Off Again Every it_interval - Reloads Timer with Relative Value (Reload Value)
     // Note: tv_sec Specifies Value in Seconds Position, tv_nsec Specifies Value in Nano Seconds Position
     struct itimerspec timer_spec;
-	timer_spec.it_value.tv_sec = offset / ONE_MILLION;
-	timer_spec.it_value.tv_nsec = (offset % ONE_MILLION) * ONE_THOUSAND;
-	timer_spec.it_interval.tv_sec = period / ONE_MILLION;
-	timer_spec.it_interval.tv_nsec = (period % ONE_MILLION) * ONE_THOUSAND;
+	timer_spec.it_value.tv_sec = phase / MILLION;
+	timer_spec.it_value.tv_nsec = (phase % MILLION) * THOUSAND;
+	timer_spec.it_interval.tv_sec = period / MILLION;
+	timer_spec.it_interval.tv_nsec = (period % MILLION) * THOUSAND;
 	
 	// Add Signal (SIGALRM) to Signal Mask with sigaddset and Block All Other Signals with sigemptyset
 	// Block signals (SIG_BLOCK) while in critical section (cs) with sigprocmask
@@ -315,7 +262,7 @@ int activate_realtime_clock(uint64_t offset, int period) {
 	int res = timer_create(CLOCK_REALTIME, &sigev, &timer);
 	if (res < 0) {
 		perror("Error: Failed to create real-time timer!");
-		exit(-1);
+		exit(EXIT_FAILURE);
 	}
 
     // Set and Start Time for Created Timer
@@ -330,14 +277,73 @@ static void update_current_time(void) {
 	clock_gettime(CLOCK_REALTIME, &tv);
 
 	// Update Current Time
-	currentTime = tv.tv_sec * ONE_THOUSAND + tv.tv_nsec / ONE_MILLION;	
+	currentTime = tv.tv_sec * THOUSAND + tv.tv_nsec / MILLION;	
 	printf(currentTime);
 }
 
+int main (int argc, char *argv[]) {
+    // Define Return Code to Validate Thread Initialization and Creation
+    // 0: Successful, -1: Unsuccessful
+    int rc;
+
+    // Instantiate Consumer and Producer POSIX Threads
+	pthread_t consumer, producers[NUM_PRODUCER_THREADS];
+
+	// Initialize Default Attributes of POSIX Threads
+	rc = pthread_attr_init(&attr);
+	if (rc) {
+		printf("Error: Failed to initialize pthread attributes! \n");
+		return EXIT_FAILURE;
+	}
+
+    // Create Consumer Thread
+    // - Pass Thread Pointer to Provide Thread Id to Created Thread
+	// - Pass Customized Attributes to Create Custom Thread
+	// - Pass Start Routine and Arguments to Routine
+	rc = pthread_create(&consumer, &attr, threadConsumer, NULL);
+	if (rc) {
+		printf("Error: Failed to create consumer thread! \n");
+		return EXIT_FAILURE;
+	}
+	
+	// Create Producers Arguments Array to  
+	int producer_args[NUM_PRODUCER_THREADS];
+
+    // Create Producers Threads
+	// - Pass Thread Index as Argument to Specify Desired Data
+	for(int i = 0; i < NUM_PRODUCER_THREADS; i++) {
+		producer_args[i] = i + 1;
+		rc = pthread_create(&producers[i], &attr, threadProducer, (void *) &producer_args[i]);
+        if (rc) {
+		    printf("Error: Failed to create producer thread #%d! \n", i);
+			return EXIT_FAILURE;
+		}
+    }
+
+    // Create and Active Periodic Timer to Synchronize Threads
+	int res = activate_realtime_clock(PHASE, PERIOD);
+	if (res < 0 ) {
+		printf("Error: Failed to create and activate periodic timer!");
+		return EXIT_FAILURE;
+	}
+	
+    // Main Loop
+	while (1) {
+        // Use Timer to Wait for Expiration Before Executing Task
+        async_wait_signal();
+		update_current_time();
+	}
+
+    // Cleanup After Completing Program
+    // Destroy Attribute Object and Terminate Thread
+	pthread_attr_destroy(&attr);
+	pthread_exit(NULL);
+	
+	return EXIT_SUCCESS;
+}
 
 /*
 // TODO: Create Header File
-const char* getfield(char*, int);
 void extractParameterValues(int, int);
 void *threadProducer(void *);
 void *threadConsumer(void *);
