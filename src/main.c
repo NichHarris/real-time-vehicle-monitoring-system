@@ -36,8 +36,7 @@ TODO:
 #define NUM_PRODUCER_THREADS 5
 
 
-//---
-
+/*
 // 94380 rows containing sensor data and 5 columns of interest in the dataset
 #define NUM_ROWS 94380
 #define NUM_COLUMNS 5
@@ -52,7 +51,7 @@ TODO:
 //array with use to hold data produced by the producer threads
 double produced[NUM_COLUMNS];
 
-/* 2D Array containing recorded sensor information (the dataset read into memory) */
+// 2D Array containing recorded sensor information (the dataset read into memory) 
 double dataset[ROW_NUM][COL_NUM];
 
 // Two-dimensional array representing the recorded data for each variable
@@ -86,8 +85,7 @@ void readDataset(int col, int param) {
     }
     fclose(file);
 }
-
-//-----
+*/
 
 // TODO: Read and Wait for Signal to Continue
 void readVariableOfInterest(char* filename) {
@@ -278,7 +276,7 @@ static void update_current_time(void) {
 
 	// Update Current Time
 	currentTime = tv.tv_sec * THOUSAND + tv.tv_nsec / MILLION;	
-	printf(currentTime);
+	printf("Current Time: %ld", currentTime);
 }
 
 int main (int argc, char *argv[]) {
@@ -329,7 +327,7 @@ int main (int argc, char *argv[]) {
 	
     // Main Loop
 	while (1) {
-        // Use Timer to Wait for Expiration Before Executing Task
+        /* ASK: What should we do in the main thread after creating timer, producer and consumer? */
         async_wait_signal();
 		update_current_time();
 	}
