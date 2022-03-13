@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <pthread.h>
+#include <semaphore.h>
 
 /*
 TODO: 
@@ -23,10 +24,18 @@ TODO:
 #define CURRENT_GEAR 3
 #define VEHICLE_SPEED 4
 
+// Define Thread Index for Each Producer
+#define FUEL_CONSUMPTION 0
+#define ENGINE_SPEED 1
+#define ENGINE_COOLANT_TEMP 2
+#define CURRENT_GEAR 3
+#define VEHICLE_SPEED 4
+
 // Define Constants for Timer Conversions
 #define THOUSAND	1000
 #define MILLION		1000000
 
+// Harris: Phase is static but period can be set by the user, for each producer, default is 5 sec
 // Define Phase and Period for All Tasks
 // - Starting at 1s, Occuring Every 5s
 #define PHASE 1000000
@@ -35,8 +44,6 @@ TODO:
 // Define Number of Producer Threads
 #define NUM_PRODUCER_THREADS 5
 
-
-/*
 // 94380 rows containing sensor data and 5 columns of interest in the dataset
 #define NUM_ROWS 94380
 #define NUM_COLUMNS 5
@@ -48,25 +55,27 @@ TODO:
 #define COL_CURRENT_GEAR 34
 #define COL_VEHICLE_SPEED 44
 
-//array with use to hold data produced by the producer threads
+// Array used to hold data produced by the producer threads
 double produced[NUM_COLUMNS];
 
-// 2D Array containing recorded sensor information (the dataset read into memory) 
-double dataset[ROW_NUM][COL_NUM];
-
-// Two-dimensional array representing the recorded data for each variable
+// Two-dimensional array representing the recorded sensor data for each variable
 float sensor_data[NUM_COLS][NUM_ROWS];
 
-// --------------------- Change this (from Mark's code) ---------------------
-// Fill sensor_data with data read from dataset.csv
-void readDataset(int col, int param) {
-    FILE* file = fopen("./dataset.csv", "r");
-    char line[2048];
-    int row = -1; // Discard first (title) row
+struct producerAttributes {
+    int voi;
+    long period;
+    sem_t* mutex;
+};
 
-    if (!file) {
+// Fill sensor_data array with data read from dataset.csv
+void readDataset(int col, int param) {
+    FILE* fstream = fopen("./dataset.csv", "r");
+    char line[1024];
+    int row = -1; // Skip the column titles row
+
+    if (!fstream) {
         fprintf(stderr, "File cannot be opened.\n");
-        exit(EXIT_FAILURE);
+        return -1;
     }
 
     // Grabs a line of the dataset
@@ -79,39 +88,56 @@ void readDataset(int col, int param) {
             continue;
         }
 
-        dataset[row][param] = atof(getfield(tmp, col)); // Save row to array, getfield picks demanded column from saved row
+        sensor_data[columns][param] = atof(getfield(tmp, col)); // Save row to array, getfield picks demanded column from saved row
         row++;
         free(tmp); // Free temporarily saved row
     }
     fclose(file);
 }
-*/
 
-// TODO: Read and Wait for Signal to Continue
-void readVariableOfInterest(char* filename) {
-    // Open and Read Specified File
-	FILE* file = fopen(filename, "r");
-    if (!file) {
-        printf("Error: File %s could not be opened!\n", filename);
-        exit(EXIT_FAILURE);
+/* Extract specified column from extracted row of dataset
+ * Function code adapted from https://stackoverflow.com/questions/12911299/read-csv-file-in-c */
+const char* getfield(char* line, int num) {
+    const char* tok;
+    for (tok = strtok(line, ",");
+        tok && *tok;
+        tok = strtok(NULL, ",\n")) {
+        if (!--num)
+            return tok;
     }
-
-	// Define Current Line Number and Data Value
-	int line = 0;
-    char val[10];
-
-	// Skip header (first line)
-	fgets(val, 10, file);
-
-	// Read File Line By Line
-    while (fgets(val, 10, file)) {
-		printf("Line %d: %s", line, val);
-        line++;
-    }
-
-	// Close File
-    fclose(file);
+    return NULL;
 }
+
+void error_handler(char function, char error) {
+    printf("Error: %s - %s\n", function, error);
+    return EXIT_FAILURE;
+}
+
+//// TODO: Read and Wait for Signal to Continue
+//void readVariableOfInterest(char* filename) {
+//    // Open and Read Specified File
+//	FILE* file = fopen(filename, "r");
+//    if (!file) {
+//        printf("Error: File %s could not be opened!\n", filename);
+//        exit(EXIT_FAILURE);
+//    }
+//
+//	// Define Current Line Number and Data Value
+//	int line = 0;
+//    char val[10];
+//
+//	// Skip header (first line)
+//	fgets(val, 10, file);
+//
+//	// Read File Line By Line
+//    while (fgets(val, 10, file)) {
+//		printf("Line %d: %s", line, val);
+//        line++;
+//    }
+//
+//	// Close File
+//    fclose(file);
+//}
 
 // Store Current Time from Real-time Clock
 uint64_t currentTime;
@@ -122,28 +148,27 @@ pthread_attr_t attr;
 // Define Global Signal Set to Specify Set of Signals Affected
 sigset_t sigst;
 
-// Determine File Name using Variable of Interest Index
-char* getFileName(int voi) {
-	switch (voi) {
-		case 1:
+//// Determine File Name using Variable of Interest Index
+char* getFileName(int index) {
+	switch (index) {
+		case 0:
 			// Fuel Consumption (0x01)
 			return "./data/Fuel_Consumption.csv";
-		case 2:
+		case 1:
 			// Engine Speed in RPM (0x02)
 			return "./data/Engine_Speed.csv";
-		case 3:
+		case 2:
 			// Engine Coolant Temperature (0x03)
 			return "./data/Engine_Coolant_Temperature.csv";
-		case 4:
+		case 3:
 			// Current Gear (0x04)
 			return "./data/Current_Gear.csv";
-		case 5:
+		case 4:
 			// Vehicle Speed (0x05)
 			return "./data/Vehicle_Speed.csv";
 		default:
 			// Potential Error
-			printf("Error: Provided value %d for file!", voi);
-			exit(EXIT_FAILURE);
+            error_handler("getFileName()", "Provided invalid value for data file!");
 	}
 }
 
@@ -259,8 +284,7 @@ int activate_realtime_clock(uint64_t phase, int period) {
     // - Using CLOCK_REALTIME with Custom sigev Struct 
 	int res = timer_create(CLOCK_REALTIME, &sigev, &timer);
 	if (res < 0) {
-		perror("Error: Failed to create real-time timer!");
-		exit(EXIT_FAILURE);
+	    error_handler("timer_create()", "Failed to create real-time timer!");
 	}
 
     // Set and Start Time for Created Timer
@@ -282,26 +306,33 @@ static void update_current_time(void) {
 int main (int argc, char *argv[]) {
     // Define Return Code to Validate Thread Initialization and Creation
     // 0: Successful, -1: Unsuccessful
-    int rc;
+    // Not sure how i feel about using an int as a bool. It's fine but not best practice
+    int result;
 
+    struct producerAttributes *args;
     // Instantiate Consumer and Producer POSIX Threads
 	pthread_t consumer, producers[NUM_PRODUCER_THREADS];
 
 	// Initialize Default Attributes of POSIX Threads
-	rc = pthread_attr_init(&attr);
-	if (rc) {
-		printf("Error: Failed to initialize pthread attributes! \n");
-		return EXIT_FAILURE;
+	result = pthread_attr_init(&attr);
+	if (result != 0) {
+	    error_handler("pthread_attr_init()", "Failed to initialize pthread attributes!");
 	}
 
     // Create Consumer Thread
     // - Pass Thread Pointer to Provide Thread Id to Created Thread
 	// - Pass Customized Attributes to Create Custom Thread
 	// - Pass Start Routine and Arguments to Routine
-	rc = pthread_create(&consumer, &attr, threadConsumer, NULL);
-	if (rc) {
-		printf("Error: Failed to create consumer thread! \n");
-		return EXIT_FAILURE;
+
+	/*
+	On success, pthread_create() returns 0; on error, it returns an
+	    error number, and the contents of *thread are undefined.
+	Harris: I think its safer for the pthread_ functions to check that the result
+	does not equal 0 rather than check if it is true.
+    */
+	result = pthread_create(&consumer, &attr, threadConsumer, NULL);
+	if (result != 0) {
+	    error_handler("pthread_create()", "Failed to create consumer thread!");
 	}
 	
 	// Create Producers Arguments Array to  
@@ -311,25 +342,26 @@ int main (int argc, char *argv[]) {
 	// - Pass Thread Index as Argument to Specify Desired Data
 	for(int i = 0; i < NUM_PRODUCER_THREADS; i++) {
 		producer_args[i] = i + 1;
-		rc = pthread_create(&producers[i], &attr, threadProducer, (void *) &producer_args[i]);
-        if (rc) {
-		    printf("Error: Failed to create producer thread #%d! \n", i);
-			return EXIT_FAILURE;
+		result = pthread_create(&producers[i], &attr, threadProducer, (void *) &producer_args[i]);
+        if (result != 0) {
+	        error_handler("pthread_create()", "Failed to create producer thread");
 		}
     }
 
     // Create and Active Periodic Timer to Synchronize Threads
-	int res = activate_realtime_clock(PHASE, PERIOD);
-	if (res < 0 ) {
-		printf("Error: Failed to create and activate periodic timer!");
-		return EXIT_FAILURE;
+	result = activate_realtime_clock(PHASE, PERIOD);
+	if (result < 0) {
+	    error_handler("activate_realtime_clock()", "Error: Failed to create and activate periodic timer!");
 	}
-	
+
     // Main Loop
 	while (1) {
         /* ASK: What should we do in the main thread after creating timer, producer and consumer? */
+        // In main thread we should run until stop time is reached then end program exec.
         async_wait_signal();
 		update_current_time();
+		// Can add some break here after x amount of time to stop the program
+		// This could be after it runs through all the data (function of the phase and period)
 	}
 
     // Cleanup After Completing Program
@@ -340,8 +372,10 @@ int main (int argc, char *argv[]) {
 	return EXIT_SUCCESS;
 }
 
+
 /*
 // TODO: Create Header File
+Harris: Header files aren't used in C, just need to declare a function header at the start of the file
 void extractParameterValues(int, int);
 void *threadProducer(void *);
 void *threadConsumer(void *);
