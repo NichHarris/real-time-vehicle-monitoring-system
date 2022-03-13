@@ -3,6 +3,7 @@
 #include <time.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <errno.h>
 #include <string.h>
 #include <stdio.h>
 #include <pthread.h>
@@ -18,13 +19,6 @@ TODO:
 */
 
 // Define Thread Index for Each Producer 
-#define FUEL_CONSUMPTION 0
-#define ENGINE_SPEED 1
-#define ENGINE_COOLANT_TEMP 2
-#define CURRENT_GEAR 3
-#define VEHICLE_SPEED 4
-
-// Define Thread Index for Each Producer
 #define FUEL_CONSUMPTION 0
 #define ENGINE_SPEED 1
 #define ENGINE_COOLANT_TEMP 2
@@ -49,24 +43,106 @@ TODO:
 #define NUM_COLUMNS 5
 
 // Column number for each variable of interest
-#define COL_FUEL_CONSUMPTION 1
-#define COL_ENGINE_SPEED 13
-#define COL_ENGINE_COOLANT_TEMP 18
-#define COL_CURRENT_GEAR 34
-#define COL_VEHICLE_SPEED 44
+#define COL_FUEL_CONSUMPTION 0
+#define COL_ENGINE_SPEED 12
+#define COL_ENGINE_COOLANT_TEMP 17
+#define COL_CURRENT_GEAR 33
+#define COL_VEHICLE_SPEED 43
 
 // Array used to hold data produced by the producer threads
 double produced[NUM_COLUMNS];
 
 // Two-dimensional array representing the recorded sensor data for each variable
 float sensor_data[NUM_COLUMNS][NUM_ROWS];
+
+// TODO: comment this
 int producerPeriods[NUM_PRODUCER_THREADS] = {PERIOD, PERIOD, PERIOD, PERIOD, PERIOD};
+
+// Mutex locks
+sem_t mutex[NUM_PRODUCER_THREADS];
 
 struct producerAttributes {
     int voi;
-    long period;
+    int period;
     sem_t* mutex;
 };
+
+// Function Headers
+void readDataset(void);
+void *threadProducer(void *);
+void *threadConsumer(void *);
+static void async_wait_signal();
+int activate_realtime_clock(uint64_t, int);
+int update_current_time(long);
+
+// Process the datatest, store the measurements in the sensor_data array
+void readDataset() {
+    FILE* stream = fopen("./dataset.csv", "r");
+    char line[2048]; // Line buffer
+	char *record; // Used to break lines into tokens
+
+	// Row and column counter
+    int row = -1;
+	int col = 0;
+
+    if (!stream) {
+        fprintf(stderr, "Unable to open file.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Read the dataset line by line
+    while (fgets(line, sizeof(line), stream)) {
+
+		// Skip the column titles row
+        if (row == -1) {
+            row++;
+            continue;
+        }
+
+		// Get line from buffer
+        record = strtok(line, ",");
+
+		// Store the tokens in their respective array entries
+		while (record != NULL) {
+			switch (col) {
+				case COL_FUEL_CONSUMPTION:
+					sensor_data[FUEL_CONSUMPTION][row] = atof(record);
+					break;
+				case COL_ENGINE_SPEED:
+					sensor_data[ENGINE_SPEED][row] = atof(record);
+					break;
+				case COL_ENGINE_COOLANT_TEMP:
+					sensor_data[ENGINE_COOLANT_TEMP][row] = atof(record);
+					break;
+				case COL_CURRENT_GEAR:
+					sensor_data[CURRENT_GEAR][row] = atof(record);
+					break;
+				case COL_VEHICLE_SPEED:
+					sensor_data[VEHICLE_SPEED][row] = atof(record);
+					break;
+				default:
+					break;
+			}
+
+			// Increment the column number and get the next token
+			col++;
+			record = strtok(NULL, ",");
+		}
+
+		// Reset column counter and increment the row counter
+		col = 0;
+        row++;
+    }
+
+	// Close the file
+    fclose(stream);
+}
+
+void initializeMutexes() {
+    for (int i = 0; i < NUM_PRODUCER_THREADS; i++) {
+        sem_init(&mutex[i], 0, 1);
+    }
+}
 
 void updateProducerPeriod(int index) {
     int period = 0;
@@ -78,77 +154,10 @@ void updateProducerPeriod(int index) {
     }
 }
 
-// Fill sensor_data array with data read from dataset.csv
-void readDataset(int col, int param) {
-    FILE* fstream = fopen("./dataset.csv", "r");
-    char line[1024];
-    int row = -1; // Skip the column titles row
-
-    if (!fstream) {
-        fprintf(stderr, "File cannot be opened.\n");
-        return -1;
-    }
-
-    // Grabs a line of the dataset
-    while (fgets(line, 2048, file)) {
-        char* tmp = strdup(line); // Store row from buffer to temporary memory
-        if (row < 0) {
-            // Discard first (title) row
-            row++;
-            free(tmp);
-            continue;
-        }
-
-        sensor_data[columns][param] = atof(getfield(tmp, col)); // Save row to array, getfield picks demanded column from saved row
-        row++;
-        free(tmp); // Free temporarily saved row
-    }
-    fclose(file);
-}
-
-/* Extract specified column from extracted row of dataset
- * Function code adapted from https://stackoverflow.com/questions/12911299/read-csv-file-in-c */
-const char* getfield(char* line, int num) {
-    const char* tok;
-    for (tok = strtok(line, ",");
-        tok && *tok;
-        tok = strtok(NULL, ",\n")) {
-        if (!--num)
-            return tok;
-    }
-    return NULL;
-}
-
 void error_handler(char function, char error) {
     printf("Error: %s - %s\n", function, error);
     return EXIT_FAILURE;
 }
-
-//// TODO: Read and Wait for Signal to Continue
-//void readVariableOfInterest(char* filename) {
-//    // Open and Read Specified File
-//	FILE* file = fopen(filename, "r");
-//    if (!file) {
-//        printf("Error: File %s could not be opened!\n", filename);
-//        exit(EXIT_FAILURE);
-//    }
-//
-//	// Define Current Line Number and Data Value
-//	int line = 0;
-//    char val[10];
-//
-//	// Skip header (first line)
-//	fgets(val, 10, file);
-//
-//	// Read File Line By Line
-//    while (fgets(val, 10, file)) {
-//		printf("Line %d: %s", line, val);
-//        line++;
-//    }
-//
-//	// Close File
-//    fclose(file);
-//}
 
 // Store Current Time from Real-time Clock
 uint64_t currentTime;
@@ -159,56 +168,29 @@ pthread_attr_t attr;
 // Define Global Signal Set to Specify Set of Signals Affected
 sigset_t sigst;
 
-//// Determine File Name using Variable of Interest Index
-char* getFileName(int index) {
-	switch (index) {
-		case 0:
-			// Fuel Consumption (0x01)
-			return "./data/Fuel_Consumption.csv";
-		case 1:
-			// Engine Speed in RPM (0x02)
-			return "./data/Engine_Speed.csv";
-		case 2:
-			// Engine Coolant Temperature (0x03)
-			return "./data/Engine_Coolant_Temperature.csv";
-		case 3:
-			// Current Gear (0x04)
-			return "./data/Current_Gear.csv";
-		case 4:
-			// Vehicle Speed (0x05)
-			return "./data/Vehicle_Speed.csv";
-		default:
-			// Potential Error
-            error_handler("getFileName()", "Provided invalid value for data file!");
-	}
+// Sleep thread for given amount of time
+void sleepThread(int period) {
+    struct itimerspec timer_spec;
+	timer_spec.tv_sec = period / MILLION;
+	timer_spec.tv_nsec = (period % MILLION) * THOUSAND;
+    while (nanosleep(&timer_spec, &timer_spec) && errno == EINTR);
 }
 
+
 // Producer Thread Routine
-void *threadProducer (void *arg) {
-	// Get Variable of Interest (voi) Number Passed in Arguments
-	int voi = *((int *) arg); 
-	
-	// Print Producer Thread Number Passed from Arguments
-	printf("Producer Thread #%d Created!\n", voi);
+void *threadProducer(void *arg) {
+    struct producerAttributes* attr = arg;
+    int period = attr->period;
+    int voi = attr->voi;
+    sem_t* mutex = attr->mutex;
 
-	// Determine File Name using Thread Id
-	char* filename = getFileName(voi);
-	printf("Producer Thread #%d: File Used %s!\n", voi, filename);
+	while(true) {
+	    sem_wait(mutex);
+	    produced[voi] = sensor_data[currentTime][voi];
+	    sem_post(mutex);
+	    sleepThread(period);
 
-	while(1) {
-		// TODO: Produce Data based on Argument Passed
-		// Check arg and determine which file to read
-		// Then Perform Msg Passing
-
-		// Read 
-		/* ASK: Do we need to place all file datapoints in array or can we read in the producer using the current clock time */
-
-		// Msg Pass
-
-
-        // TODO: Use Timer to Wait for Expiration Before Executing Task
-		/* ASK: Do we use sigwait in each producer and consumer thread? */
-        // async_wait_signal();
+		//TODO: Message passing???
 
 		printf("Producing!");
 	}
@@ -320,6 +302,9 @@ int main (int argc, char *argv[]) {
     // Not sure how i feel about using an int as a bool. It's fine but not best practice
     int result;
 
+    // Process the dataset and store the sensor data in memory
+    readDataset();
+
     struct producerAttributes *args[NUM_PRODUCER_THREADS + 1];
 
     // Instantiate Consumer and Producer POSIX Threads
@@ -393,7 +378,7 @@ int main (int argc, char *argv[]) {
         args[i] = malloc(sizeof(struct producerAttributes));
         args[i]->voi = i;
         args[i]->period = producerPeriods[i];
-        args[i]->mutex = null;
+        args[i]->mutex = &mutex[i];
     }
 
     // Create Producers Threads
@@ -434,15 +419,3 @@ int main (int argc, char *argv[]) {
 	
 	return EXIT_SUCCESS;
 }
-
-
-/*
-// TODO: Create Header File
-Harris: Header files aren't used in C, just need to declare a function header at the start of the file
-void extractParameterValues(int, int);
-void *threadProducer(void *);
-void *threadConsumer(void *);
-static void async_wait_signal();
-int activate_realtime_clock(uint64_t, int);
-int update_current_time(long);
-*/
