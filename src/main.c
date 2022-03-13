@@ -59,13 +59,24 @@ TODO:
 double produced[NUM_COLUMNS];
 
 // Two-dimensional array representing the recorded sensor data for each variable
-float sensor_data[NUM_COLS][NUM_ROWS];
+float sensor_data[NUM_COLUMNS][NUM_ROWS];
+int producerPeriods[NUM_PRODUCER_THREADS] = {PERIOD, PERIOD, PERIOD, PERIOD, PERIOD};
 
 struct producerAttributes {
     int voi;
     long period;
     sem_t* mutex;
 };
+
+void updateProducerPeriod(int index) {
+    int period = 0;
+    printf("\nEnter value of period for producer thread %d", index);
+    scanf("%d", &period);
+    if (period != 0) {
+        producerPeriods[index] = period;
+        printf("\nSuccessfully updated period of producer thread %d to %d\n", index, period);
+    }
+}
 
 // Fill sensor_data array with data read from dataset.csv
 void readDataset(int col, int param) {
@@ -309,7 +320,8 @@ int main (int argc, char *argv[]) {
     // Not sure how i feel about using an int as a bool. It's fine but not best practice
     int result;
 
-    struct producerAttributes *args;
+    struct producerAttributes *args[NUM_PRODUCER_THREADS + 1];
+
     // Instantiate Consumer and Producer POSIX Threads
 	pthread_t consumer, producers[NUM_PRODUCER_THREADS];
 
@@ -337,6 +349,54 @@ int main (int argc, char *argv[]) {
 	
 	// Create Producers Arguments Array to  
 	int producer_args[NUM_PRODUCER_THREADS];
+
+    while (true) {
+        int input;
+        printf("--- Select program setup options below ---\n");
+        printf("[0] - Run all producer threads with default period\n");
+        printf("[1] - Manually enter the period for all producer threads\n");
+        printf("[2] - Modify only a specific producer thread's period\n");
+        printf("[3] - Exit\n");
+        printf("Enter value of selection: ");
+        scanf("%d", &input);
+        switch(input) {
+            case 0:
+                printf("\nRunning all threads in default mode\n");
+                break;
+            case 1:
+                for (int i = 0; i < NUM_PRODUCER_THREADS; i++) {
+                    updateProducerPeriod(i);
+                }
+                break;
+            case 2:
+                int threadIndex;
+                printf("\nModify specific thread period selected, select thread to modify [0 to 4]: ");
+                scanf("%d", &threadIndex);
+                if (threadIndex < NUM_PRODUCER_THREADS && threadIndex >= 0) {
+                    updateProducerPeriod(threadIndex);
+                    break;
+                } else {
+                    printf("\nInvalid thread, exiting...");
+                    return 0;
+                }
+            case 3:
+                printf("\nProgram exit selected, ending...");
+                return 0;
+            default:
+                printf("\nInvalid entry, ending program");
+                return 0;
+        }
+    }
+    for (int i = 0; i < NUM_PRODUCER_THREADS; i++) {
+
+        scanf("%d")
+    }
+
+    for (int i = 0; i < NUM_PRODUCER_THREADS; i++) {
+        args[i] = calloc(1, sizeof(struct producerAttributes));
+        args[i]->voi = i;
+        args[i]->period =
+    }
 
     // Create Producers Threads
 	// - Pass Thread Index as Argument to Specify Desired Data
