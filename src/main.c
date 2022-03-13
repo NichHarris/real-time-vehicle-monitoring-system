@@ -342,7 +342,7 @@ int main (int argc, char *argv[]) {
 	Harris: I think its safer for the pthread_ functions to check that the result
 	does not equal 0 rather than check if it is true.
     */
-	result = pthread_create(&consumer, &attr, threadConsumer, NULL);
+	result = pthread_create(&consumer, &attr, &threadConsumer, NULL);
 	if (result != 0) {
 	    error_handler("pthread_create()", "Failed to create consumer thread!");
 	}
@@ -387,22 +387,20 @@ int main (int argc, char *argv[]) {
                 return 0;
         }
     }
-    for (int i = 0; i < NUM_PRODUCER_THREADS; i++) {
 
-        scanf("%d")
-    }
-
+    // Set the attributes of each producer thread
     for (int i = 0; i < NUM_PRODUCER_THREADS; i++) {
-        args[i] = calloc(1, sizeof(struct producerAttributes));
+        args[i] = malloc(sizeof(struct producerAttributes));
         args[i]->voi = i;
-        args[i]->period =
+        args[i]->period = producerPeriods[i];
+        args[i]->mutex = null;
     }
 
     // Create Producers Threads
 	// - Pass Thread Index as Argument to Specify Desired Data
 	for(int i = 0; i < NUM_PRODUCER_THREADS; i++) {
 		producer_args[i] = i + 1;
-		result = pthread_create(&producers[i], &attr, threadProducer, (void *) &producer_args[i]);
+		result = pthread_create(&producers[i], &attr, &threadProducer, (void *) &args[i]);
         if (result != 0) {
 	        error_handler("pthread_create()", "Failed to create producer thread");
 		}
@@ -411,15 +409,20 @@ int main (int argc, char *argv[]) {
     // Create and Active Periodic Timer to Synchronize Threads
 	result = activate_realtime_clock(PHASE, PERIOD);
 	if (result < 0) {
-	    error_handler("activate_realtime_clock()", "Error: Failed to create and activate periodic timer!");
+	    error_handler("activate_realtime_clock()", "Failed to create and activate periodic timer!");
 	}
 
     // Main Loop
-	while (1) {
+	while (true) {
         /* ASK: What should we do in the main thread after creating timer, producer and consumer? */
         // In main thread we should run until stop time is reached then end program exec.
         async_wait_signal();
 		update_current_time();
+		// Arbitrary 1000 second execution
+		if (currentTime >= 1000) {
+		    print("Ending program execution, execution timer has expired\n");
+		    break;
+		}
 		// Can add some break here after x amount of time to stop the program
 		// This could be after it runs through all the data (function of the phase and period)
 	}
