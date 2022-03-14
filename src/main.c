@@ -176,7 +176,6 @@ void sleepThread(int period) {
     while (nanosleep(&timer_spec, &timer_spec) && errno == EINTR);
 }
 
-
 // Producer Thread Routine
 void *threadProducer(void *arg) {
     struct producerAttributes* attr = arg;
@@ -188,7 +187,7 @@ void *threadProducer(void *arg) {
 	    sem_wait(mutex);
 	    produced[voi] = sensor_data[currentTime][voi];
 	    sem_post(mutex);
-	    sleepThread(period);
+	    sleepThread(period); //TODO: replace with async_wait_signal
 
 		//TODO: Message passing???
 
@@ -239,7 +238,10 @@ static void async_wait_signal(void) {
 	//const int signal = SIGALRM;
 	//sigemptyset(&sigst);
 	//sigaddset(&sigst, signal);
-	//sigprocmask(SIG_BLOCK, &sigst, NULL);
+	//sigprocmask(SIG_BLOCK, &sigst, NULL); <- semaphore lock
+	// critical section
+	//sigprocmask(SIG_SETMASK, &sigst, NULL); <- semaphore unlock
+
 }
 
 // Create and Activate real-time timer to implement periodic tasks adapted from timers_code.c
@@ -368,7 +370,7 @@ int main (int argc, char *argv[]) {
                 printf("\nProgram exit selected, ending...");
                 return 0;
             default:
-                printf("\nInvalid entry, ending program");
+                printf("\nInvalid entry, ending program...");
                 return 0;
         }
     }
