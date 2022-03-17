@@ -52,18 +52,18 @@ TODO:
 // Define Attach Point
 // - Server: Create a Channel with Attach Point Name
 // - Client: Connect to Channel with Attach Point Name
-#define ATTACH_POINT "client_server_connection_point"
+#define ATTACH_POINT "client_server_conn_point"
 
 // Define Struct for Msg Header as Pulse
 // -> Contained at Start of All Messages Sent
 // -> Used to Identify Message from Type/Subtype Fields (4 Bytes)
-typedef struct _pulse msg_header_t; //TODO: Can we rename these?
+typedef struct _pulse hdr_t;
 
 // Define Struct for Msg, Including Header and Actual Data
 typedef struct _my_data {
     int data;
-    msg_header_t hdr;
-} my_data_t; //TODO: Can we rename these?
+    hdr_t hdr;
+} msg_t;
 
 // Array used to hold data produced by the producer threads
 double produced[NUM_COLUMNS];
@@ -199,8 +199,8 @@ void *threadProducer(void *arg) {
     int voi = attr->voi;
     sem_t* mutex = attr->mutex;
 
-	// Define Msg
-    my_data_t msg;
+	// Define Client and Server Msg
+    msg_t cmsg, smsg;
 
     // Define Receive Id
     int rcvid;
@@ -215,7 +215,7 @@ void *threadProducer(void *arg) {
 	while(true) {
 		// Call MsgReceive() and Wait Until Msg is Received through Channel
     	// Break if Failed to Receive Pulse
-       rcvid = MsgReceive(attach->chid, &msg, sizeof(msg), NULL);
+       rcvid = MsgReceive(attach->chid, &cmsg, sizeof(cmsg), NULL);
        if (rcvid == -1) {
 		   error_handler("MsgReceive()", "Failed to Receive Pulse")
            break;
@@ -223,14 +223,15 @@ void *threadProducer(void *arg) {
 
 		// Successfully Pulse Received
        if (rcvid == 0) {
-            switch (msg.hdr.code) {
+            switch (cmsg.hdr.code) {
                 // Detach Connection if Client Disconnected All Connections
                 case _PULSE_CODE_DISCONNECT:
-                    ConnectDetach(msg.hdr.scoid);
+                    ConnectDetach(cmsg.hdr.scoid);
                     break;
-                // Unblock Client and Reply to Client
+                // Reply Blocked - Waiting for Server to Reply 
+				// -> Unblock Client and Reply to Client
                 case _PULSE_CODE_UNBLOCK:
-                    // TODO: Reply to Client
+                    // TODO: Determine Whether to Respond Now or Later ...
                     break;
                 // Pulse Sent As_PULSE_CODE_COIDDEATH or _PULSE_CODE_THREADDEATH 
                 default:
@@ -239,54 +240,32 @@ void *threadProducer(void *arg) {
            continue;
        }
 
-
        // Check Msg Type and Reply with EOK to Connection Msg from name_open()
-       if (msg.hdr.type == _IO_CONNECT ) {
+       if (cmsg.hdr.type == _IO_CONNECT ) {
            MsgReply( rcvid, EOK, NULL, 0 );
            continue;
        }
 
        // Check Msg Type and Reject QNX IO Msgs
-       if (msg.hdr.type > _IO_BASE && msg.hdr.type <= _IO_MAX ) {
+       if (cmsg.hdr.type > _IO_BASE && cmsg.hdr.type <= _IO_MAX ) {
            MsgError( rcvid, ENOSYS );
            continue;
        }
 
-        // TODO: 
-        // 1) Read Msg from Client
-        // 2) Check Type and Subtype
-        // 3) Generate Response Msg Based on Type/Subtype Desired
-
-        // Types:
-        // 0x00 - Request Data
-        // 0x01 - Update Configurations 
-        //  -> Mechanism to Update Period and Frequency of Consumer/Server Thread
-
-        // Subtypes: 
-		// 0x00 - Fuel Consumption,
-        // 0x01 - Engine Speed (RPM),
-        // 0x02 - Engine Coolant Temperature,
-        // 0x03 - Current Gear
-        // 0x04 - Vehicle Speed
-
-        // TODO: Check Msg Header Type and Subtype
-	   if (msg.hdr.type == 0x00) {
-	      if (msg.hdr.subtype == 0x01) {
-              printf("Server received: %d \n", msg.data);
+	   	// Generate Response if Type Matches Data Requested (0x00)
+		// And Subtype Matches Variable of Interest from Producer (voi)
+		if (msg.hdr.type == 0x00) {
+	      if (msg.hdr.subtype == voi) {
+            smsg.hdr = cmsg.hdr;
+			smsg.data = sensor_data[currentTime][voi];
+			MsgReply(rcvid, EOK, smsg, sizeof(smsg));
 	      }
 	   }
-
-	   	// TODO: Generate Response
-       	//MsgReply(rcvid, EOK, 0, 0);
-
-	    sem_wait(mutex);
-	    produced[voi] = sensor_data[currentTime][voi];
-	    sem_post(mutex);
+		
+	    // sem_wait(mutex);
+	    // produced[voi] = sensor_data[currentTime][voi];
+	    // sem_post(mutex);
 	    sleepThread(period); //TODO: replace with async_wait_signal
-
-		//TODO: Message passing???
-
-		printf("Producing!");
 	}
 
 	// Remove and Detach Generated Name from Space in QNX
@@ -302,8 +281,8 @@ void *threadConsumer() {
 	// Started Consumer Thread
 	printf("Consumer Thread Created!\n");
 
-	// Define Msg
-	my_data_t msg;
+	// Define Client and Server Msgs
+	msg_t cmsg, smsg;
 
     // Open Connection using name_open
     // -> Obtain Server Connection Id
@@ -313,31 +292,34 @@ void *threadConsumer() {
         exit(EXIT_FAILURE);
     }
 	
+	// Main Loop - Consume Data from Producer
 	while(1) {
-		// TODO: Consume Data from Producer
-		// Perform message passing
-		// Wait for all data before printing all the data
-
 		// Define Header Type and Subtype for Requests
 		// - Type = 0x00 for Data Request
 		// - Subtype = 0xXX for Variable of Interest
-		msg.hdr.type = 0x00;
-		msg.hdr.subtype = 0x00;
+		cmsg.hdr.type = 0x00;
+		cmsg.hdr.subtype = 0x00;
 
 		// Send Requests to Producers Tasks
 		// Update Subtype to Request for Next Variable of Interest
 		for(int i = 0; i < NUM_PRODUCER_THREADS; i++) {
-			int msg_res = MsgSend(server_coid, &msg, sizeof(msg), NULL, 0);
-			msg.hdr.subtype = i + 1;
+			// TODO: Not Sure how MsgSend will be Done...
+			// Break if MsgSend is Unsuccessful (Returning -1)
+			if(MsgSend(server_coid, &cmsg, sizeof(cmsg), &smsg, sizeof(smsg)) == -1) {
+				break;
+			}
+			printf("Received in Consumer: %d", smsg.data);
+			cmsg.hdr.subtype = i + 1;
 		}
 
-		// Print All Variables of Interest
+		// Print All Variables of Interest	
 		printf("Current Time:  %ld\n", currentTime);
 		// printf("Fuel Consumption: %f\n", fuelConsumption);
 		// printf("Engine Speed: %d\n", engineSpeed);
 		// printf("Engine Coolant Temperature: %d\n", engineCoolantTemperature);
 		// printf("Current Gear: %d\n", currentGear);
 		// printf("Vehicle Speed: %d\n", vehicleSpeed);
+		
 
 		// TODO: Use Timer to Wait for Expiration Before Executing Task
         // async_wait_signal();
