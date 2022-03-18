@@ -3,32 +3,33 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 
-//TODO: Review with Slides
 int main() {
 	const char *name = "/my_shm";
 	const int SIZE = 4096;
 	int shm_fd;
 	void *ptr;
-	/* open the shared memory segment */ 
+
+    // Open the Shared Memory Segment as Read Only (Consumer)
 	shm_fd = shm_open(name, O_RDONLY, 0666); 
 	if (shm_fd == -1) {
-    	perror("in shm_open()");
+    	perror("Error: shm_open() Failed");
 		exit(1);
 	}
 	
-	/* now map the shared memory segment in the address space of the process */
+    // Create and Map Shared Memory Segment in Address Space of Process
 	ptr = mmap(0,SIZE, PROT_READ, MAP_SHARED, shm_fd, 0); 
 	if (ptr == MAP_FAILED) {
-    	perror("in mmap()");
+    	perror("Error: mmap() Failed");
 		exit(1);
 	}
-	
-	/* now read from the shared memory region */
-	printf("Content in the shared memory:\n");
-	printf("    %s", ptr);
-	/* remove the shared memory segment */ 
+
+    // TODO: Add Mutex to Lock and Unlock for Reading when Other Process is Writing
+    // Read Shared Memory Segment
+	printf("Shared Memory: %s", ptr);
+
+    // Unlink Shared Memory Segment
 	if (shm_unlink(name) == -1) {
-    	perror("in shm_unlink()");
+    	perror("Error: shm_unlink() Failed");
 		exit(1);
 	}
 
