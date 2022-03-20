@@ -11,20 +11,12 @@
 /*
 TODO: 
 - Fix Scheduling of Producer and Consumer Threads/Tasks using Clock
-- Work on getting file name, then reading specific file
 - Perform Message Passing on Producer
 - Perform Message Passing on Consumer
 - Print in Consumer the Data!
 */
 
 // Define Thread Index for Each Producer 
-#define FUEL_CONSUMPTION 0
-#define ENGINE_SPEED 1
-#define ENGINE_COOLANT_TEMP 2
-#define CURRENT_GEAR 3
-#define VEHICLE_SPEED 4
-
-// Define Thread Index for Each Producer
 #define FUEL_CONSUMPTION 0
 #define ENGINE_SPEED 1
 #define ENGINE_COOLANT_TEMP 2
@@ -68,44 +60,66 @@ struct producerAttributes {
 };
 
 // Fill sensor_data array with data read from dataset.csv
-void readDataset(int col, int param) {
-    FILE* fstream = fopen("./dataset.csv", "r");
-    char line[1024];
-    int row = -1; // Skip the column titles row
+void readDataset() {
+    FILE* dataset = fopen("./dataset.csv", "r");
+    char line[2048]; // Line buffer
+	char *record; // Used to break lines into tokens
 
-    if (!fstream) {
-        fprintf(stderr, "File cannot be opened.\n");
+	// Row and column counter
+    int row = -1;
+	int col = 0;
+
+    if (!dataset) {
+        fprintf(stderr, "Unable to open file.\n");
         return -1;
     }
 
-    // Grabs a line of the dataset
-    while (fgets(line, 2048, file)) {
-        char* tmp = strdup(line); // Store row from buffer to temporary memory
+    // Read the dataset line by line
+    while (fgets(line, sizeof(line), dataset)) {
+
+		// Skip the column titles row
         if (row < 0) {
-            // Discard first (title) row
             row++;
-            free(tmp);
             continue;
         }
 
-        sensor_data[columns][param] = atof(getfield(tmp, col)); // Save row to array, getfield picks demanded column from saved row
-        row++;
-        free(tmp); // Free temporarily saved row
-    }
-    fclose(file);
-}
+		// Get line from buffer
+        record = strok(line, ",");
 
-/* Extract specified column from extracted row of dataset
- * Function code adapted from https://stackoverflow.com/questions/12911299/read-csv-file-in-c */
-const char* getfield(char* line, int num) {
-    const char* tok;
-    for (tok = strtok(line, ",");
-        tok && *tok;
-        tok = strtok(NULL, ",\n")) {
-        if (!--num)
-            return tok;
+		// Store the tokens in their respective array entries
+		while (record != NULL) {
+			switch (col) {
+				case COL_FUEL_CONSUMPTION:
+					sensor_data[FUEL_CONSUMPTION][row] = atof(record);
+					break;
+				case COL_ENGINE_SPEED:
+					sensor_data[ENGINE_SPEED][row] = atof(record);
+					break;
+				case COL_ENGINE_COOLANT_TEMP:
+					sensor_data[ENGINE_COOLANT_TEMP][row] = atof(record);
+					break;
+				case COL_CURRENT_GEAR:
+					sensor_data[CURRENT_GEAR][row] = atof(record);
+					break;
+				case COL_VEHICLE_SPEED:
+					sensor_data[VEHICLE_SPEED][row] = atof(record);
+					break;
+				default:
+					break;
+			}
+
+			// Increment the column number and get the next token
+			col++;
+			record = strtok(NULL, ",");
+		}
+
+		// Reset column counter and increment the row counter
+		col = 0;
+        row++;
     }
-    return NULL;
+
+	// Close the file
+    fclose(file);
 }
 
 void error_handler(char function, char error) {
@@ -148,58 +162,86 @@ pthread_attr_t attr;
 // Define Global Signal Set to Specify Set of Signals Affected
 sigset_t sigst;
 
-//// Determine File Name using Variable of Interest Index
-char* getFileName(int index) {
-	switch (index) {
-		case 0:
-			// Fuel Consumption (0x01)
-			return "./data/Fuel_Consumption.csv";
-		case 1:
-			// Engine Speed in RPM (0x02)
-			return "./data/Engine_Speed.csv";
-		case 2:
-			// Engine Coolant Temperature (0x03)
-			return "./data/Engine_Coolant_Temperature.csv";
-		case 3:
-			// Current Gear (0x04)
-			return "./data/Current_Gear.csv";
-		case 4:
-			// Vehicle Speed (0x05)
-			return "./data/Vehicle_Speed.csv";
-		default:
-			// Potential Error
-            error_handler("getFileName()", "Provided invalid value for data file!");
-	}
-}
+// OLD APPROACH, UPDATED BELOW
+// //// Determine File Name using Variable of Interest Index
+// char* getFileName(int index) {
+// 	switch (index) {
+// 		case 0:
+// 			// Fuel Consumption (0x01)
+// 			return "./data/Fuel_Consumption.csv";
+// 		case 1:
+// 			// Engine Speed in RPM (0x02)
+// 			return "./data/Engine_Speed.csv";
+// 		case 2:
+// 			// Engine Coolant Temperature (0x03)
+// 			return "./data/Engine_Coolant_Temperature.csv";
+// 		case 3:
+// 			// Current Gear (0x04)
+// 			return "./data/Current_Gear.csv";
+// 		case 4:
+// 			// Vehicle Speed (0x05)
+// 			return "./data/Vehicle_Speed.csv";
+// 		default:
+// 			// Potential Error
+//             error_handler("getFileName()", "Provided invalid value for data file!");
+// 	}
+// }
+
+// // Producer Thread Routine
+// void *threadProducer (void *arg) {
+// 	// Get Variable of Interest (voi) Number Passed in Arguments
+// 	int voi = *((int *) arg); 
+	
+// 	// Print Producer Thread Number Passed from Arguments
+// 	printf("Producer Thread #%d Created!\n", voi);
+
+// 	// Determine File Name using Thread Id
+// 	char* filename = getFileName(voi);
+// 	printf("Producer Thread #%d: File Used %s!\n", voi, filename);
+
+// 	while(1) {
+// 		// TODO: Produce Data based on Argument Passed
+// 		// Check arg and determine which file to read
+// 		// Then Perform Msg Passing
+
+// 		// Read 
+// 		/* ASK: Do we need to place all file datapoints in array or can we read in the producer using the current clock time */
+
+// 		// Msg Pass
+
+
+//         // TODO: Use Timer to Wait for Expiration Before Executing Task
+// 		/* ASK: Do we use sigwait in each producer and consumer thread? */
+//         // async_wait_signal();
+
+// 		printf("Producing!");
+// 	}
+
+// 	// Terminate Thread and Exit
+// 	pthread_exit(NULL);
+// 	return NULL;
+// }
+
+struct producerAttributes {
+    int voi;
+    long period;
+    sem_t* mutex;
+};
 
 // Producer Thread Routine
-void *threadProducer (void *arg) {
-	// Get Variable of Interest (voi) Number Passed in Arguments
-	int voi = *((int *) arg); 
-	
-	// Print Producer Thread Number Passed from Arguments
-	printf("Producer Thread #%d Created!\n", voi);
+void *threadProducer(void *arg) {
+	while (1) {
+		// Lock mutex to prevent consumer thread from reading from producer while it's being written to
+        sem_wait(arg->mutex);
 
-	// Determine File Name using Thread Id
-	char* filename = getFileName(voi);
-	printf("Producer Thread #%d: File Used %s!\n", voi, filename);
+		// Critical section, write sensor data to the producer
+		produced[arg->voi] = dataset[arg->voi][currentTime];
 
-	while(1) {
-		// TODO: Produce Data based on Argument Passed
-		// Check arg and determine which file to read
-		// Then Perform Msg Passing
+		// Unlock mutex
+		sem_post(arg->mutex);
 
-		// Read 
-		/* ASK: Do we need to place all file datapoints in array or can we read in the producer using the current clock time */
-
-		// Msg Pass
-
-
-        // TODO: Use Timer to Wait for Expiration Before Executing Task
-		/* ASK: Do we use sigwait in each producer and consumer thread? */
-        // async_wait_signal();
-
-		printf("Producing!");
+		// Put thread to sleep for its assigned period
+		uSecSleep(arg->period);
 	}
 
 	// Terminate Thread and Exit
@@ -371,15 +413,3 @@ int main (int argc, char *argv[]) {
 	
 	return EXIT_SUCCESS;
 }
-
-
-/*
-// TODO: Create Header File
-Harris: Header files aren't used in C, just need to declare a function header at the start of the file
-void extractParameterValues(int, int);
-void *threadProducer(void *);
-void *threadConsumer(void *);
-static void async_wait_signal();
-int activate_realtime_clock(uint64_t, int);
-int update_current_time(long);
-*/
