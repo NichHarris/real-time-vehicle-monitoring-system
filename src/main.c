@@ -3,6 +3,7 @@
 #include <time.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <errno.h>
 #include <string.h>
 #include <stdio.h>
 #include <pthread.h>
@@ -41,27 +42,57 @@ TODO:
 #define NUM_COLUMNS 5
 
 // Column number for each variable of interest
-#define COL_FUEL_CONSUMPTION 1
-#define COL_ENGINE_SPEED 13
-#define COL_ENGINE_COOLANT_TEMP 18
-#define COL_CURRENT_GEAR 34
-#define COL_VEHICLE_SPEED 44
+#define COL_FUEL_CONSUMPTION 0
+#define COL_ENGINE_SPEED 12
+#define COL_ENGINE_COOLANT_TEMP 17
+#define COL_CURRENT_GEAR 33
+#define COL_VEHICLE_SPEED 43
+
+// Define Attach Point
+// - Server: Create a Channel with Attach Point Name
+// - Client: Connect to Channel with Attach Point Name
+#define ATTACH_POINT "client_server_conn_point"
+
+// Define Struct for Msg Header as Pulse
+// -> Contained at Start of All Messages Sent
+// -> Used to Identify Message from Type/Subtype Fields (4 Bytes)
+typedef struct _pulse hdr_t;
+
+// Define Struct for Msg, Including Header and Actual Data
+typedef struct _my_data {
+    int data;
+    hdr_t hdr;
+} msg_t;
 
 // Array used to hold data produced by the producer threads
 double produced[NUM_COLUMNS];
 
 // Two-dimensional array representing the recorded sensor data for each variable
-float sensor_data[NUM_COLS][NUM_ROWS];
+float sensor_data[NUM_COLUMNS][NUM_ROWS];
+
+// TODO: comment this
+int producerPeriods[NUM_PRODUCER_THREADS] = {PERIOD, PERIOD, PERIOD, PERIOD, PERIOD};
+
+// Mutex locks
+sem_t mutex[NUM_PRODUCER_THREADS];
 
 struct producerAttributes {
     int voi;
-    long period;
+    int period;
     sem_t* mutex;
 };
 
-// Fill sensor_data array with data read from dataset.csv
+// Function Headers
+void readDataset(void);
+void *threadProducer(void *);
+void *threadConsumer(void *);
+static void async_wait_signal();
+int activate_realtime_clock(uint64_t, int);
+int update_current_time(long);
+
+// Process the datatest, store the measurements in the sensor_data array
 void readDataset() {
-    FILE* dataset = fopen("./dataset.csv", "r");
+    FILE* stream = fopen("./dataset.csv", "r");
     char line[2048]; // Line buffer
 	char *record; // Used to break lines into tokens
 
@@ -69,22 +100,22 @@ void readDataset() {
     int row = -1;
 	int col = 0;
 
-    if (!dataset) {
+    if (!stream) {
         fprintf(stderr, "Unable to open file.\n");
-        return -1;
+        exit(EXIT_FAILURE);
     }
 
     // Read the dataset line by line
-    while (fgets(line, sizeof(line), dataset)) {
+    while (fgets(line, sizeof(line), stream)) {
 
 		// Skip the column titles row
-        if (row < 0) {
+        if (row == -1) {
             row++;
             continue;
         }
 
 		// Get line from buffer
-        record = strok(line, ",");
+        record = strtok(line, ",");
 
 		// Store the tokens in their respective array entries
 		while (record != NULL) {
@@ -119,39 +150,29 @@ void readDataset() {
     }
 
 	// Close the file
-    fclose(file);
+    fclose(stream);
+}
+
+void initializeMutexes() {
+    for (int i = 0; i < NUM_PRODUCER_THREADS; i++) {
+        sem_init(&mutex[i], 0, 1);
+    }
+}
+
+void updateProducerPeriod(int index) {
+    int period = 0;
+    printf("\nEnter value of period for producer thread %d", index);
+    scanf("%d", &period);
+    if (period != 0) {
+        producerPeriods[index] = period;
+        printf("\nSuccessfully updated period of producer thread %d to %d\n", index, period);
+    }
 }
 
 void error_handler(char function, char error) {
     printf("Error: %s - %s\n", function, error);
     return EXIT_FAILURE;
 }
-
-//// TODO: Read and Wait for Signal to Continue
-//void readVariableOfInterest(char* filename) {
-//    // Open and Read Specified File
-//	FILE* file = fopen(filename, "r");
-//    if (!file) {
-//        printf("Error: File %s could not be opened!\n", filename);
-//        exit(EXIT_FAILURE);
-//    }
-//
-//	// Define Current Line Number and Data Value
-//	int line = 0;
-//    char val[10];
-//
-//	// Skip header (first line)
-//	fgets(val, 10, file);
-//
-//	// Read File Line By Line
-//    while (fgets(val, 10, file)) {
-//		printf("Line %d: %s", line, val);
-//        line++;
-//    }
-//
-//	// Close File
-//    fclose(file);
-//}
 
 // Store Current Time from Real-time Clock
 uint64_t currentTime;
@@ -162,87 +183,92 @@ pthread_attr_t attr;
 // Define Global Signal Set to Specify Set of Signals Affected
 sigset_t sigst;
 
-// OLD APPROACH, UPDATED BELOW
-// //// Determine File Name using Variable of Interest Index
-// char* getFileName(int index) {
-// 	switch (index) {
-// 		case 0:
-// 			// Fuel Consumption (0x01)
-// 			return "./data/Fuel_Consumption.csv";
-// 		case 1:
-// 			// Engine Speed in RPM (0x02)
-// 			return "./data/Engine_Speed.csv";
-// 		case 2:
-// 			// Engine Coolant Temperature (0x03)
-// 			return "./data/Engine_Coolant_Temperature.csv";
-// 		case 3:
-// 			// Current Gear (0x04)
-// 			return "./data/Current_Gear.csv";
-// 		case 4:
-// 			// Vehicle Speed (0x05)
-// 			return "./data/Vehicle_Speed.csv";
-// 		default:
-// 			// Potential Error
-//             error_handler("getFileName()", "Provided invalid value for data file!");
-// 	}
-// }
-
-// // Producer Thread Routine
-// void *threadProducer (void *arg) {
-// 	// Get Variable of Interest (voi) Number Passed in Arguments
-// 	int voi = *((int *) arg); 
-	
-// 	// Print Producer Thread Number Passed from Arguments
-// 	printf("Producer Thread #%d Created!\n", voi);
-
-// 	// Determine File Name using Thread Id
-// 	char* filename = getFileName(voi);
-// 	printf("Producer Thread #%d: File Used %s!\n", voi, filename);
-
-// 	while(1) {
-// 		// TODO: Produce Data based on Argument Passed
-// 		// Check arg and determine which file to read
-// 		// Then Perform Msg Passing
-
-// 		// Read 
-// 		/* ASK: Do we need to place all file datapoints in array or can we read in the producer using the current clock time */
-
-// 		// Msg Pass
-
-
-//         // TODO: Use Timer to Wait for Expiration Before Executing Task
-// 		/* ASK: Do we use sigwait in each producer and consumer thread? */
-//         // async_wait_signal();
-
-// 		printf("Producing!");
-// 	}
-
-// 	// Terminate Thread and Exit
-// 	pthread_exit(NULL);
-// 	return NULL;
-// }
-
-struct producerAttributes {
-    int voi;
-    long period;
-    sem_t* mutex;
-};
+// Sleep thread for given amount of time
+void sleepThread(int period) {
+    struct itimerspec timer_spec;
+	timer_spec.tv_sec = period / MILLION;
+	timer_spec.tv_nsec = (period % MILLION) * THOUSAND;
+    while (nanosleep(&timer_spec, &timer_spec) && errno == EINTR);
+}
 
 // Producer Thread Routine
 void *threadProducer(void *arg) {
-	while (1) {
-		// Lock mutex to prevent consumer thread from reading from producer while it's being written to
-        sem_wait(arg->mutex);
+    struct producerAttributes* attr = arg;
+    int period = attr->period;
+    int voi = attr->voi;
+    sem_t* mutex = attr->mutex;
 
-		// Critical section, write sensor data to the producer
-		produced[arg->voi] = dataset[arg->voi][currentTime];
+	// Define Client and Server Msg
+    msg_t cmsg, smsg;
 
-		// Unlock mutex
-		sem_post(arg->mutex);
+    // Define Receive Id
+    int rcvid;
 
-		// Put thread to sleep for its assigned period
-		uSecSleep(arg->period);
+    // Define and Attach Name in Namespace (/dev/name/local/...) & Create Channel
+    name_attach_t *attach;
+    attach = name_attach(NULL, ATTACH_POINT, 0);
+    if (attach == NULL) {
+        exit(EXIT_FAILURE);
+    }
+
+	while(true) {
+		// Call MsgReceive() and Wait Until Msg is Received through Channel
+    	// Break if Failed to Receive Pulse
+       rcvid = MsgReceive(attach->chid, &cmsg, sizeof(cmsg), NULL);
+       if (rcvid == -1) {
+		   error_handler("MsgReceive()", "Failed to Receive Pulse")
+           break;
+    	}
+
+		// Successfully Pulse Received
+       if (rcvid == 0) {
+            switch (cmsg.hdr.code) {
+                // Detach Connection if Client Disconnected All Connections
+                case _PULSE_CODE_DISCONNECT:
+                    ConnectDetach(cmsg.hdr.scoid);
+                    break;
+                // Reply Blocked - Waiting for Server to Reply 
+				// -> Unblock Client and Reply to Client
+                case _PULSE_CODE_UNBLOCK:
+                    // TODO: Determine Whether to Respond Now or Later ...
+                    break;
+                // Pulse Sent As_PULSE_CODE_COIDDEATH or _PULSE_CODE_THREADDEATH 
+                default:
+                    break;
+            }
+           continue;
+       }
+
+       // Check Msg Type and Reply with EOK to Connection Msg from name_open()
+       if (cmsg.hdr.type == _IO_CONNECT ) {
+           MsgReply( rcvid, EOK, NULL, 0 );
+           continue;
+       }
+
+       // Check Msg Type and Reject QNX IO Msgs
+       if (cmsg.hdr.type > _IO_BASE && cmsg.hdr.type <= _IO_MAX ) {
+           MsgError( rcvid, ENOSYS );
+           continue;
+       }
+
+	   	// Generate Response if Type Matches Data Requested (0x00)
+		// And Subtype Matches Variable of Interest from Producer (voi)
+		if (msg.hdr.type == 0x00) {
+	      if (msg.hdr.subtype == voi) {
+            smsg.hdr = cmsg.hdr;
+			smsg.data = sensor_data[currentTime][voi];
+			MsgReply(rcvid, EOK, smsg, sizeof(smsg));
+	      }
+	   }
+		
+	    // sem_wait(mutex);
+	    // produced[voi] = sensor_data[currentTime][voi];
+	    // sem_post(mutex);
+	    sleepThread(period); //TODO: replace with async_wait_signal
 	}
+
+	// Remove and Detach Generated Name from Space in QNX
+   	name_detach(attach, 0);
 
 	// Terminate Thread and Exit
 	pthread_exit(NULL);
@@ -251,25 +277,55 @@ void *threadProducer(void *arg) {
 
 // Consumer Thread Routine
 void *threadConsumer() {
+	// Started Consumer Thread
 	printf("Consumer Thread Created!\n");
+
+	// Define Client and Server Msgs
+	msg_t cmsg, smsg;
+
+    // Open Connection using name_open
+    // -> Obtain Server Connection Id
+    // -> Validate Connection Was Successful 
+    int server_coid = name_open(ATTACH_POINT, 0);
+    if (server_coid == -1) {
+        exit(EXIT_FAILURE);
+    }
 	
+	// Main Loop - Consume Data from Producer
 	while(1) {
-		// TODO: Consume Data from Producer
-		// Perform message passing
-		// Wait for all data before printing all the data
+		// Define Header Type and Subtype for Requests
+		// - Type = 0x00 for Data Request
+		// - Subtype = 0xXX for Variable of Interest
+		cmsg.hdr.type = 0x00;
+		cmsg.hdr.subtype = 0x00;
 
+		// Send Requests to Producers Tasks
+		// Update Subtype to Request for Next Variable of Interest
+		for(int i = 0; i < NUM_PRODUCER_THREADS; i++) {
+			// TODO: Not Sure how MsgSend will be Done...
+			// Break if MsgSend is Unsuccessful (Returning -1)
+			if(MsgSend(server_coid, &cmsg, sizeof(cmsg), &smsg, sizeof(smsg)) == -1) {
+				break;
+			}
+			printf("Received in Consumer: %d", smsg.data);
+			cmsg.hdr.subtype = i + 1;
+		}
 
-		// Print All Variables of Interest
+		// Print All Variables of Interest	
 		printf("Current Time:  %ld\n", currentTime);
 		// printf("Fuel Consumption: %f\n", fuelConsumption);
 		// printf("Engine Speed: %d\n", engineSpeed);
 		// printf("Engine Coolant Temperature: %d\n", engineCoolantTemperature);
 		// printf("Current Gear: %d\n", currentGear);
 		// printf("Vehicle Speed: %d\n", vehicleSpeed);
+		
 
 		// TODO: Use Timer to Wait for Expiration Before Executing Task
         // async_wait_signal();
 	}
+
+	// Close Connection using name_close
+    name_close(server_coid);
 
 	// Terminate Thread and Exit
 	pthread_exit(NULL);
@@ -288,7 +344,10 @@ static void async_wait_signal(void) {
 	//const int signal = SIGALRM;
 	//sigemptyset(&sigst);
 	//sigaddset(&sigst, signal);
-	//sigprocmask(SIG_BLOCK, &sigst, NULL);
+	//sigprocmask(SIG_BLOCK, &sigst, NULL); <- semaphore lock
+	// critical section
+	//sigprocmask(SIG_SETMASK, &sigst, NULL); <- semaphore unlock
+
 }
 
 // Create and Activate real-time timer to implement periodic tasks adapted from timers_code.c
@@ -351,7 +410,11 @@ int main (int argc, char *argv[]) {
     // Not sure how i feel about using an int as a bool. It's fine but not best practice
     int result;
 
-    struct producerAttributes *args;
+    // Process the dataset and store the sensor data in memory
+    readDataset();
+
+    struct producerAttributes *args[NUM_PRODUCER_THREADS + 1];
+
     // Instantiate Consumer and Producer POSIX Threads
 	pthread_t consumer, producers[NUM_PRODUCER_THREADS];
 
@@ -372,7 +435,7 @@ int main (int argc, char *argv[]) {
 	Harris: I think its safer for the pthread_ functions to check that the result
 	does not equal 0 rather than check if it is true.
     */
-	result = pthread_create(&consumer, &attr, threadConsumer, NULL);
+	result = pthread_create(&consumer, &attr, &threadConsumer, NULL);
 	if (result != 0) {
 	    error_handler("pthread_create()", "Failed to create consumer thread!");
 	}
@@ -380,11 +443,57 @@ int main (int argc, char *argv[]) {
 	// Create Producers Arguments Array to  
 	int producer_args[NUM_PRODUCER_THREADS];
 
+    while (true) {
+        int input;
+        printf("--- Select program setup options below ---\n");
+        printf("[0] - Run all producer threads with default period\n");
+        printf("[1] - Manually enter the period for all producer threads\n");
+        printf("[2] - Modify only a specific producer thread's period\n");
+        printf("[3] - Exit\n");
+        printf("Enter value of selection: ");
+        scanf("%d", &input);
+        switch(input) {
+            case 0:
+                printf("\nRunning all threads in default mode\n");
+                break;
+            case 1:
+                for (int i = 0; i < NUM_PRODUCER_THREADS; i++) {
+                    updateProducerPeriod(i);
+                }
+                break;
+            case 2:
+                int threadIndex;
+                printf("\nModify specific thread period selected, select thread to modify [0 to 4]: ");
+                scanf("%d", &threadIndex);
+                if (threadIndex < NUM_PRODUCER_THREADS && threadIndex >= 0) {
+                    updateProducerPeriod(threadIndex);
+                    break;
+                } else {
+                    printf("\nInvalid thread, exiting...");
+                    return 0;
+                }
+            case 3:
+                printf("\nProgram exit selected, ending...");
+                return 0;
+            default:
+                printf("\nInvalid entry, ending program...");
+                return 0;
+        }
+    }
+
+    // Set the attributes of each producer thread
+    for (int i = 0; i < NUM_PRODUCER_THREADS; i++) {
+        args[i] = malloc(sizeof(struct producerAttributes));
+        args[i]->voi = i;
+        args[i]->period = producerPeriods[i];
+        args[i]->mutex = &mutex[i];
+    }
+
     // Create Producers Threads
 	// - Pass Thread Index as Argument to Specify Desired Data
 	for(int i = 0; i < NUM_PRODUCER_THREADS; i++) {
 		producer_args[i] = i + 1;
-		result = pthread_create(&producers[i], &attr, threadProducer, (void *) &producer_args[i]);
+		result = pthread_create(&producers[i], &attr, &threadProducer, (void *) &args[i]);
         if (result != 0) {
 	        error_handler("pthread_create()", "Failed to create producer thread");
 		}
@@ -393,15 +502,20 @@ int main (int argc, char *argv[]) {
     // Create and Active Periodic Timer to Synchronize Threads
 	result = activate_realtime_clock(PHASE, PERIOD);
 	if (result < 0) {
-	    error_handler("activate_realtime_clock()", "Error: Failed to create and activate periodic timer!");
+	    error_handler("activate_realtime_clock()", "Failed to create and activate periodic timer!");
 	}
 
     // Main Loop
-	while (1) {
+	while (true) {
         /* ASK: What should we do in the main thread after creating timer, producer and consumer? */
         // In main thread we should run until stop time is reached then end program exec.
         async_wait_signal();
 		update_current_time();
+		// Arbitrary 1000 second execution
+		if (currentTime >= 1000) {
+		    print("Ending program execution, execution timer has expired\n");
+		    break;
+		}
 		// Can add some break here after x amount of time to stop the program
 		// This could be after it runs through all the data (function of the phase and period)
 	}
