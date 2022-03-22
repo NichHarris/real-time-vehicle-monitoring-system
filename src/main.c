@@ -74,12 +74,12 @@ float sensor_data[NUM_COLUMNS][NUM_ROWS];
 int producerPeriods[NUM_PRODUCER_THREADS] = {PERIOD, PERIOD, PERIOD, PERIOD, PERIOD};
 
 // Mutex locks
-sem_t mutex[NUM_PRODUCER_THREADS];
+pthread_mutex_t mutex[NUM_PRODUCER_THREADS];
 
 struct producerAttributes {
     int voi;
     int period;
-    sem_t* mutex;
+    pthread_mutex_t* mutex;
 };
 
 // Function Headers
@@ -155,7 +155,7 @@ void readDataset() {
 
 void initializeMutexes() {
     for (int i = 0; i < NUM_PRODUCER_THREADS; i++) {
-        sem_init(&mutex[i], 0, 1);
+        pthread_mutex_init(&mutex[i], 0, 1);
     }
 }
 
@@ -196,7 +196,7 @@ void *threadProducer(void *arg) {
     struct producerAttributes* attr = arg;
     int period = attr->period;
     int voi = attr->voi;
-    sem_t* mutex = attr->mutex;
+    pthread_mutex_t* mutex = attr->mutex;
 
 	// Define Client and Server Msg
     msg_t cmsg, smsg;
