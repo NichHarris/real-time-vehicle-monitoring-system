@@ -18,10 +18,6 @@ TODO:
 - Print in Consumer the Data!
 */
 
-// Periods can be doubles?
-// Multiple Timers or One Timer?
-
-
 // Define Thread Index for Each Producer 
 #define FUEL_CONSUMPTION 0
 #define ENGINE_SPEED 1
@@ -53,6 +49,11 @@ TODO:
 #define COL_ENGINE_COOLANT_TEMP 17
 #define COL_CURRENT_GEAR 33
 #define COL_VEHICLE_SPEED 43
+
+// Dataset filepath (local)
+char[] filepath = "/data/dataset.csv"
+// Dataset filepath (qnx lab) 
+// char[] filepath = "/public/coen320/dataset.csv"
 
 // Array used to hold data produced by the producer threads
 double produced[NUM_COLUMNS];
@@ -99,7 +100,7 @@ int update_current_time(long);
 
 // Process the dataset, store the measurements in the sensor_data array
 void readDataset() {
-    FILE* stream = fopen("./dataset.csv", "r");
+    FILE* stream = fopen(filepath, "r");
     char line[2048]; // Line buffer
 	char *record; // Used to break lines into tokens
 
