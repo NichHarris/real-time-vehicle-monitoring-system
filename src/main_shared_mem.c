@@ -163,7 +163,7 @@ void readDataset() {
 
 void initializeMutexes() {
     for (int i = 0; i < NUM_PRODUCER_THREADS; i++) {
-        pthread_mutex_init(&mutex[i], 0, 1);
+        pthread_mutex_init(&mutex[i], NULL);
     }
 }
 
@@ -372,22 +372,28 @@ static void updateProducerAttributes(struct producerAttributes* producerAttr, bo
 
 // TODINGUS
 static void checkProducers() {
+	bool hasChanged = FALSE;
 	for (int i = 0; i < NUM_PRODUCER_THREADS; i++) {
 		// If task released time is less than or equal to current time and it has not already been released, we unlock it and update its status
 		if (tasksToRun[i].releaseTime <= currentTime) {
 			// Task should be released
 			if (!tasksToRun[i].isReleased) {
-				// Unlock the thread to let it run its critical section
-				pthread_mutex_unlock((tasksToRun[i].mutex));
-				// We call an update on it to change its release time to the next instance, however it has no run yet
+				// We call an update on it to change its release time to the next instance, however it has not run yet
 				updateProducerAttributes(&tasksToRun[i], FALSE);
+				// Unlock the thread to let it run its critical sectiongit
+				pthread_mutex_unlock((tasksToRun[i].mutex));
+				hasChanged = TRUE;
 			}
 		} else {
 			// Exit loop since we don't need to check the next tasks
 			break;
 		}
 	}
-	sortTasksToRun();
+	
+	// Only sort arr if task release times were changed
+	if (hasChanged) {
+		sortTasksToRun();
+	}
 }
 
 int main (int argc, char *argv[]) {
@@ -488,8 +494,7 @@ int main (int argc, char *argv[]) {
 			return 0;
 	}
 
-	// TODO: Add consumer args
-	struct producerAttributes* args[NUM_PRODUCER_THREADS];
+	initializeMutexes();
 
     // Set the attributes of each producer thread
     for (int i = 0; i < NUM_PRODUCER_THREADS; i++) {
