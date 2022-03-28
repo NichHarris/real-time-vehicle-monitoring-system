@@ -1,7 +1,11 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+
+// For shared mem
 #include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 // For POSIX Threads
 #include <pthread.h>
@@ -23,7 +27,7 @@
 #define NUM_ROWS 94380
 #define NUM_COLUMNS 5
 
-// Define Thread Index for Each Producer 
+// Define Thread Index for Each Producer
 #define FUEL_CONSUMPTION 0
 #define ENGINE_SPEED 1
 #define ENGINE_COOLANT_TEMP 2
@@ -43,8 +47,8 @@
 #define PERIOD 5000000
 
 // Dataset filepath (local machine)
-char[] filepath = "/data/dataset.csv"
-// Dataset filepath (qnx lab) 
+char filepath[] = "/data/dataset.csv";
+// Dataset filepath (qnx lab)
 // char[] filepath = "/public/coen320/dataset.csv"
 
 // Array used to hold data produced by the producer threads
@@ -218,17 +222,20 @@ static void update_current_time(void) {
 
 	// Update current time
 	currentTime = get_time_sec(tv) - startTime;
-	printf("Current Time: %f\n", currentTime);
 }
 
 // TODO: Ensure correct base
 // Perform greatest common divisor (GCD) using Euclidean Division
 // -> Obtain suitable clock interval for accurate timing
-int calc_gcd(int p1, int p2) {
-	if(p1 == 0)
-		return p2;
+int calc_gcd(int period1, int period2) {
+	if(period1 == 0)
+		return period2;
+	if(period2 == 0)
+			return period1;
+	if(period2 == period1)
+		return period1;
 
-	return calc_gcd(p2 % p1, p1);
+	return calc_gcd(period2 % period1, period1);
 }
 
 // TODO: Ensure correct base
@@ -242,37 +249,37 @@ int calc_lcm(int p1, int p2) {
 // Get clock interval by calculating GCD among producer thread periods
 int get_clock_interval(int periods[]) {
 	// Iterate over each period to obtain greatest common divisor, suitable clock interval
-	int clock_interval = periods[0];
+	int clock_interval = periods[0]/MILLION;
 	for(int i = 1; i < NUM_PRODUCER_THREADS; i++) {
-		clock_interval = calc_gcd(periods[i], clock_interval);
+		clock_interval = calc_gcd(periods[i]/MILLION, clock_interval);
 	}
 
-	return clock_interval;
+	return clock_interval*MILLION;
 }
 
 // TODO: Change to correct base
 // Get hyperperiod by calculating LCM among producer thread periods
 int get_hyperperiod(int periods[]) {
 	// Iterate over each period to obtain least common multiple for major cycle
-	int major_cycle = periods[0];
+	int major_cycle = periods[0]/MILLION;
 	for(int i = 1; i < NUM_PRODUCER_THREADS; i++) {
-		major_cycle = calc_lcm(periods[i], major_cycle);
+		major_cycle = calc_lcm(major_cycle, periods[i]/MILLION);
 	}
 
-	return major_cycle;
+	return major_cycle*MILLION;
 }
 
 // Get consumer period
 // -> Represents minimum producer period
 int get_consumer_period(int periods[]) {
-	int min_period = periods[0];
+	int min_period = periods[0]/MILLION;
 	for(int i = 1; i < NUM_PRODUCER_THREADS; i++) {
-		if(min_period > periods[i]) {
-			min_period = periods[i];
+		if(min_period > periods[i]/MILLION) {
+			min_period = periods[i]/MILLION;
 		}
 	}
 
-	return min_period;
+	return min_period*MILLION;
 }
 
 // Get file name from variable of interest index
@@ -312,8 +319,6 @@ void *threadProducer(void *arg) {
 
 	printf("Producer Thread %d Initialized\n", voi);
 
-	char* a = getFileName(voi);
-
 	// Wait for clock interrupt
 	//wait_clock_interrupt();
 	update_current_time();
@@ -340,7 +345,7 @@ void updateProducerPeriod(int index) {
     fflush(stdout);
     scanf("%d", &period);
     if (period > 0) {
-        producerPeriods[index] = period;
+        producerPeriods[index] = period*MILLION;
         printf("Successfully updated period of producer thread %d to %d\n", index, period);
     } else {
         error_handler("updateProducerPeriod()", "Entered invalid period for producer thread!\n");
@@ -354,7 +359,8 @@ void requestUserInput() {
 	puts("[0] - Run all producer threads with default period");
 	puts("[1] - Manually enter the periods for all producer threads");
 	puts("[2] - Modify only a specific producer thread's period");
-	puts("[3] - Exit");
+	puts("[3] - Continue execution");
+	puts("[4] - Exit");
 	puts("Enter value of selection: ");
 	scanf("%d", &input);
 
@@ -378,6 +384,8 @@ void requestUserInput() {
 			}
 			break;
 		case 3:
+			break;
+		case 4:
 			printf("\nProgram exit selected, ending program successfully...");
 			exit(EXIT_SUCCESS);
 		default:
@@ -400,7 +408,7 @@ int main(void) {
 		perror("Error: shm_open() failed. Exiting...");
 		exit(1);
 	}
-	
+
 	// Truncate file to specified size for shared memory segment
 	ftruncate(shm_fd, SHM_SIZE);
 
@@ -444,8 +452,9 @@ int main(void) {
 		error_handler("activate_realtime_clock()", "Failed to create and activate periodic timer!");
 	}
 
-	// Update current time
-	update_current_time();
+	wait_clock_interrupt();
+//	// Update current time
+//	update_current_time();
 
    for(int i = 0; i < NUM_PRODUCER_THREADS; i++) {
 		// Initialize mutex for each producer thread
@@ -454,7 +463,7 @@ int main(void) {
 		// Create thread arguments used in thread start routine
 		args[i].voi = i;
 		args[i].period = producerPeriods[i];
-		args[i].mutex = &1[i];
+		args[i].mutex = &mutex[i];
 
 		// Create producer threads
 		res = pthread_create(&producers[i], &attr, threadProducer, (void *) &args[i]);
@@ -464,7 +473,7 @@ int main(void) {
     }
 
 	// Initial sort
-	sortTasksToRun();
+//	sortTasksToRun();
 
 	// Create consumer thread
 	// - Pass thread pointer to provide thread id to created thread
@@ -478,18 +487,20 @@ int main(void) {
 
 	// Request user input every hyperperiod
 	int hyperperiod = get_hyperperiod(producerPeriods);
-	printf("%d", hyperperiod);
+	printf("%d\n", hyperperiod);
+	printf("%d\n", period);
 
 	while(1) {
-		if(hyperperiod <= currentTime) {
+		if(hyperperiod/MILLION <= currentTime) {
 			requestUserInput();
 		}
 
 		// Run scheduling algorithm
-		checkProducers();
+//		checkProducers();
 
 		// Call timer interrupt
 		wait_clock_interrupt();
+		printf("Current Time: %f\n", currentTime);
 		update_current_time();
 	}
 
