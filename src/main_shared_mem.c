@@ -530,8 +530,7 @@ int main (int argc, char *argv[]) {
 	}
 
 	// Unlink Shared Memory Segment
-	if (shm_unlink("/sharedData") == -1)
-	{
+	if (shm_unlink("/sharedData") == -1) {
 		perror("Error: shm_unlink() failed. Exiting...");
 		exit(1);
 	}
