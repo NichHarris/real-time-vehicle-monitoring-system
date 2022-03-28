@@ -413,7 +413,7 @@ int main (int argc, char *argv[]) {
 	ftruncate(shm_fd, SHM_SIZE);
 
 	// Create new mapping in virtual address space
-	sharedData = (float *)mmap(0, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+	sharedData = (float*) mmap(0, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
 	if(sharedData == MAP_FAILED){
 		perror("Error: mmap() failed. Exiting...");
 		exit(1);
