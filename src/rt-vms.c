@@ -70,6 +70,9 @@ struct producer_args {
     int voi;
     int period;
     pthread_mutex_t* mutex;
+	pthread_cond_t* cond;
+	bool isReleased;
+	int releaseTime;
 };
 
 // Store global current time of real-time clock/timer
@@ -78,6 +81,14 @@ double currentTime;
 // Array which holds the period of each producer
 int producerPeriods[NUM_PRODUCER_THREADS] = {PERIOD, PERIOD, PERIOD, PERIOD, PERIOD};
 
+// Mutex locks
+pthread_mutex_t mutex[NUM_PRODUCER_THREADS];
+
+// Conditions
+pthread_mutex_t cond[NUM_PRODUCER_THREADS];
+
+// Array of producer threads to run, sorted by next releaseTime
+struct producerAttributes tasksToRun[NUM_PRODUCER_THREADS];
 
 // Process the dataset, store the measurements in the sensor_data array
 void readDataset() {
@@ -140,6 +151,14 @@ void readDataset() {
 
 	// Close the file
     fclose(stream);
+}
+
+// Initialize the mutexes and condition locks
+void initializeMutexes() {
+    for (int i = 0; i < NUM_PRODUCER_THREADS; i++) {
+        pthread_mutex_init(&mutex[i], NULL);
+		pthread_cond_inint(&cond[i], NULL);
+    }
 }
 
 // Prints and handles errors produced at runtime
@@ -275,48 +294,32 @@ int get_consumer_period(int periods[]) {
 	return min_period;
 }
 
-// Get file name from variable of interest index
-char* getFileName(int voi) {
-    // Determine file name using variable of interest
-	switch (voi) {
-		case 0:
-			// Fuel Consumption (0x00)
-			return "Fuel_Consumption.csv";
-		case 1:
-			// Engine Speed in RPM (0x01)
-			return "Engine_Speed.csv";
-		case 2:
-			// Engine Coolant Temperature (0x02)
-			return "Engine_Coolant_Temperature.csv";
-		case 3:
-			// Current Gear (0x03)
-			return "Current_Gear.csv";
-		case 4:
-			// Vehicle Speed (0x04)
-			return "Vehicle_Speed.csv";
-		default:
-			// Potential error
-			error_handler("getFileName()", "Provided invalid value for file!");
-	}
-
-	return "Failed!";
-}
-
 // Producer thread routine
-void *threadProducer(void *arg) {
+void *threadProducer(void *args) {
 	// Get the producer thread's data members
-    struct producer_args* pa = arg;
-    int period = pa->period;
-    int voi = pa->voi;
-    pthread_mutex_t* mutex = pa->mutex;
+    struct producerAttributes* producerAttr = args;
+    int period = producerAttr->period;
+    int voi = producerAttr->voi;
+    pthread_mutex_t* mutex = producerAttr->mutex;
+    pthread_mutex_t* cond = producerAttr->cond;
 
 	printf("Producer Thread %d Initialized\n", voi);
 
-	char* a = getFileName(voi);
+	while (1) {
+		// Update the entry in the sharedData array for a given producer's array index (critical section)
+		pthread_mutex_lock(mutex);
+		/* Critical Section Start */
+		pthread_cond_wait(cond, mutex)
 
-	// Wait for clock interrupt
-	//wait_clock_interrupt();
-	update_current_time();
+		// Write to shared memory segment of respective variable of interest
+		sharedData[voi] = (float) sensor_data[voi][currentTime];
+
+		// Change the run status to true, we update the next releaseTime
+		updateProducerAttributes(producerAttr, TRUE);
+
+		/* Critical Section End */
+		pthread_mutex_unlock(mutex);
+	}
 
 	return NULL;
 }
@@ -333,6 +336,49 @@ void *threadConsumer(void *arg) {
 	return NULL;
 }
 
+// Sorts tasksToRun array in ascending order by the producerReleaseTimes
+static void sortTasksToRun() {
+	qsort(tasksToRun, NUM_PRODUCER_THREADS, sizeof(struct producerAttributes), compareReleaseTimes);
+}
+
+// Thread has run the producer for this period, we can update the period and set the status to True
+static void updateProducerAttributes(struct producerAttributes* producerAttr, bool hasRun) {
+	if (hasRun) {
+		producerAttr->releaseTime += producerAttr->period;
+		producerAttr->isReleased = FALSE;
+	} else {
+		producerAttr->isReleased = TRUE;
+	}
+}
+
+// TODINGUS
+static void checkProducers() {
+	bool hasChanged = FALSE;
+	for (int i = 0; i < NUM_PRODUCER_THREADS; i++) {
+		// If task released time is less than or equal to current time and it has not already been released, we unlock it and update its status
+		if (tasksToRun[i].releaseTime <= currentTime) {
+			// Task should be released
+			if (!tasksToRun[i].isReleased) {
+				// We call an update on it to change its release time to the next instance, however it has not run yet
+				updateProducerAttributes(&tasksToRun[i], FALSE);
+				// TODO: Can release condition lock here to allow the producer thread to continue
+				pthread_cond_signal(tasksToRun[i].cond);
+
+				hasChanged = TRUE;
+			}
+		} else {
+			// Exit loop since we don't need to check the next tasks
+			break;
+		}
+	}
+	
+	// Only sort arr if task release times were changed
+	if (hasChanged) {
+		sortTasksToRun();
+	}
+}
+
+// TODO: Set period to base million
 // Update a producer's period
 void updateProducerPeriod(int index) {
     int period = 0;
@@ -374,14 +420,14 @@ void requestUserInput() {
 			if (threadIndex < NUM_PRODUCER_THREADS && threadIndex >= 0) {
 				updateProducerPeriod(threadIndex);
 			} else {
-				error_handler("requestUserInput()", "Invalid thread index, exiting....");
+				error_handler("requestUserInput()", "Invalid thread index, exiting...");
 			}
 			break;
 		case 3:
 			printf("\nProgram exit selected, ending program successfully...");
 			exit(EXIT_SUCCESS);
 		default:
-			error_handler("requestUserInput()", "Invalid entry, ending program....");
+			error_handler("requestUserInput()", "Invalid entry, ending program...");
 	}
 }
 
@@ -416,9 +462,6 @@ int main(void) {
 		sharedData[i] = 0;
 	}
 
-	// Struct containing thread attributes
-	struct producer_args args[NUM_PRODUCER_THREADS];
-
     // Instantiate consumer and producer POSIX threads
 	pthread_t consumer, producers[NUM_PRODUCER_THREADS];
 
@@ -452,12 +495,15 @@ int main(void) {
 		pthread_mutex_init(&mutex[i], NULL);
 
 		// Create thread arguments used in thread start routine
-		args[i].voi = i;
-		args[i].period = producerPeriods[i];
-		args[i].mutex = &1[i];
+		tasksToRun[i].voi = i;
+		tasksToRun[i].period = producerPeriods[i];
+		tasksToRun[i].mutex = &1[i];
+		tasksToRun[i]->cond = &cond[i];
+		tasksToRun[i]->releaseTime = 0;
+		tasksToRun[i]->isReleased = FALSE;
 
 		// Create producer threads
-		res = pthread_create(&producers[i], &attr, threadProducer, (void *) &args[i]);
+		res = pthread_create(&producers[i], &attr, threadProducer, (void *) &tasksToRun[i]);
 		if (res != 0) {
 			error_handler("pthread_create()", "Failed to create producer thread");
 		}
