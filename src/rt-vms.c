@@ -65,9 +65,6 @@ float *sharedData;
 // Instantiate gloabl signal set (sigst) to specify set of signals affected by timer activation
 sigset_t sigst;
 
-// Define Mutexes For Each Producer Thread to Lock Critical Sections
-pthread_mutex_t mutex[NUM_PRODUCER_THREADS];
-
 // Define Global Thread Attribute to Specify Characteristics of POSIX (Portable Operating System Interface) Thread
 pthread_attr_t attr;
 
@@ -89,10 +86,10 @@ int producerPeriods[NUM_PRODUCER_THREADS] = {PERIOD, PERIOD, PERIOD, PERIOD, PER
 
 // Mutex locks
 pthread_mutex_t mutex[NUM_PRODUCER_THREADS];
+pthread_mutex_t consumer_mutex;
 
 // Conditions
-pthread_mutex_t cond[NUM_PRODUCER_THREADS];
-pthread_mutex_t consumer_mutex;
+pthread_cond_t cond[NUM_PRODUCER_THREADS];
 
 // Array of producer threads to run, sorted by next releaseTime
 struct producerAttributes tasksToRun[NUM_PRODUCER_THREADS];
@@ -320,24 +317,19 @@ void *threadProducer(void *args) {
     int voi = producerAttr->voi;
     pthread_mutex_t* mutex = producerAttr->mutex;
     pthread_mutex_t* cond = producerAttr->cond;
-    bool isReleased = producerAttr->isReleased;
 
 	printf("Producer Thread %d Initialized\n", voi);
 
 	while (1) {
-
 		// Update the entry in the sharedData array for a given producer's array index (critical section)
 		pthread_mutex_lock(mutex);
 		/* Critical Section Start */
-		while(!producerAttr->isReleased)
+		while (!producerAttr->isReleased) {
 			pthread_cond_wait(cond, mutex);
-
-		printf("Thread Current time: %d\n", (int) currentTime);
+		}
 		// Write to shared memory segment of respective variable of interest
-		printf("Thread Data read is: %f\n", (float) sensor_data[voi][(int) currentTime - 1]);
+		printf("Data read is: %f\n", (float) sensor_data[voi][(int) currentTime - 1]);
 		sharedData[voi] = (float) sensor_data[voi][(int) currentTime];
-
-		printf(producerAttr->isReleased ? "true\n":"false\n");
 
 		// Change the run status to true, we update the next releaseTime
 		updateProducerAttributes(producerAttr, true);
@@ -354,10 +346,12 @@ void *threadConsumer(void *arg) {
 
 	printf("Consumer Thread Initialized\n\n");
 
+	struct producerAttributes** producers = arg;
+
 	// Main Loop - Consume Data from Producer
 	while(1) {
-		pthread_mutex_lock(&consumer_mutex);
 		wait_clock_interrupt();
+		pthread_mutex_lock(&consumer_mutex);
 		// Print the current time and all variables of interest
 		printf("Consumer Current Time:  %f\n", currentTime);
 
@@ -387,7 +381,6 @@ void *threadConsumer(void *arg) {
 		pthread_mutex_unlock(producersAttrs[VEHICLE_SPEED].mutex);
 
 		pthread_mutex_unlock(&consumer_mutex);
-//		wait_clock_interrupt();
 	}
 
 	// Terminate Thread and Exit
@@ -413,9 +406,7 @@ void updateProducerAttributes(struct producerAttributes* producerAttr, bool hasR
 	if (hasRun) {
 		producerAttr->releaseTime += producerAttr->period/MILLION;
 		producerAttr->isReleased = false;
-//		printf("Is released is false now.\n");
 	} else {
-//		printf("Is released is true now.\n");
 		producerAttr->isReleased = true;
 	}
 }
@@ -426,16 +417,13 @@ static void checkProducers() {
 	for (int i = 0; i < NUM_PRODUCER_THREADS; i++) {
 		// If task released time is less than or equal to current time and it has not already been released, we unlock it and update its status
 		if (tasksToRun[i].releaseTime <= currentTime) {
-//			printf("Release time has been reached for task %d.\n", tasksToRun[i].voi);
-//			printf(tasksToRun[i].isReleased ? "true\n":"false\n");
 			// Task should be released
 			if (!tasksToRun[i].isReleased) {
-				// Can release condition lock here to allow the producer thread to continue
-				updateProducerAttributes(&tasksToRun[i], false);
-				pthread_cond_signal(tasksToRun[i].cond);
-//				printf("Released task %d.\n", tasksToRun[i].voi);
-				hasChanged = true;
+
 				// We call an update on it to change its release time to the next instance, however it has not run yet
+				pthread_cond_signal(tasksToRun[i].cond);
+				updateProducerAttributes(&tasksToRun[i], false);
+				hasChanged = true;
 			}
 		} else {
 			// Exit loop since we don't need to check the next tasks
@@ -586,7 +574,8 @@ int main(void) {
 
 	// Initial sort
 	sortTasksToRun();
-
+	// Run scheduling algorithm
+//	checkProducers();
 	// Create consumer thread
 	// - Pass thread pointer to provide thread id to created thread
 	// - Pass customized attributes to create custom thread
@@ -599,21 +588,26 @@ int main(void) {
 
 	// Request user input every hyperperiod
 	int hyperperiod = get_hyperperiod(producerPeriods);
+	printf("%d\n", hyperperiod);
+	printf("%d\n", period);
 
-//	checkProducers();
-	// update_current_time();
+	update_current_time();
 	while(1) {
+		// Run scheduling algorithm
+		// Call timer interrupt
+		wait_clock_interrupt();
+		checkProducers();
 		if(hyperperiod/MILLION <= currentTime) {
 			pthread_mutex_lock(&consumer_mutex);
+			// TODO: Save current time as another variable, stop timer thread, and create new timer when user enters a val
 			requestUserInput();
 			pthread_mutex_unlock(&consumer_mutex);
 		}
 
-		// Call timer interrupt
+//		// Call timer interrupt
+//		wait_clock_interrupt();
 //		printf("Current Time: %f\n", currentTime);
-		checkProducers();
-		wait_clock_interrupt();
-		update_current_time();
+//		update_current_time();
 	}
 
 	// Unlink Shared Memory Segment
