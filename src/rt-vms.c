@@ -4,19 +4,19 @@
 #include <stdlib.h>
 #include <math.h>
 
-// For shared mem
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-
-// For POSIX Threads
+// Include POSIX threads
 #include <pthread.h>
 
-// For Interval Timer
+// Include interval timer and clock interrupts
 #include <time.h>
 #include <signal.h>
 #include <string.h>
 #include <sys/time.h>
+
+// Include shared memory
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 // Define constants for timer conversions
 #define THOUSAND 1000
@@ -24,6 +24,9 @@
 
 // Define number of producer threads
 #define NUM_PRODUCER_THREADS 5
+
+// Define number of tasks (consumer and producers
+#define NUM_TASKS 6
 
 // 94380 rows containing sensor data and 5 columns of interest in the dataset
 #define NUM_ROWS 94380
@@ -44,8 +47,8 @@
 #define COL_VEHICLE_SPEED 43
 
 // Define phase and period for all tasks/threads
-// Starting at 1s, occuring every 5s (default)
-#define PHASE 1000000
+// Starting at 0s, occuring every 5s (default)
+#define PHASE 0000000
 #define PERIOD 5000000
 
 // Dataset filepath (local machine)
@@ -69,7 +72,7 @@ sigset_t sigst;
 pthread_attr_t attr;
 
 // Holds the data members of producers
-typedef struct producerAttributes {
+struct producerAttributes {
     int voi;
     int period;
     pthread_mutex_t* mutex;
@@ -89,17 +92,17 @@ pthread_mutex_t mutex[NUM_PRODUCER_THREADS];
 pthread_mutex_t consumer_mutex;
 
 // Conditions
-pthread_cond_t cond[NUM_PRODUCER_THREADS];
+pthread_cond_t cond[NUM_PRODUCER_THREADS + 1];
 
 // Array of producer threads to run, sorted by next releaseTime
 struct producerAttributes tasksToRun[NUM_PRODUCER_THREADS];
 struct producerAttributes producersAttrs[NUM_PRODUCER_THREADS];
 
 // Function headers
-void updateProducerAttributes(struct producerAttributes*, bool);
-int compareReleaseTimes(const void*, const void*);
-static void update_current_time(void);
-static void checkProducers();
+//void updateProducerAttributes(struct producerAttributes*, bool);
+//int compareReleaseTimes(const void*, const void*);
+//static void update_current_time(void);
+//static void checkProducers();
 
 // Process the dataset, store the measurements in the sensor_data array
 void readDataset() {
@@ -171,6 +174,7 @@ void initializeMutexes() {
 		pthread_cond_init(&cond[i], NULL);
     }
     pthread_mutex_init(&consumer_mutex, NULL);
+    pthread_cond_init(&cond[5], NULL);
 }
 
 // Prints and handles errors produced at runtime
@@ -183,7 +187,7 @@ void error_handler(char *function, char *error) {
 static void wait_clock_interrupt(void) {
 	// Suspend thread until timer expiration by waiting for alarm signal
 	int sig;
-	update_current_time();
+	//update_current_time();
 	sigwait(&sigst, &sig);
 }
 
@@ -235,7 +239,7 @@ double get_time_sec(struct timespec tv) {
 }
 
 // Update global current time variable using real time clock adapted from timers_code.c
-static void update_current_time(void) {
+void update_current_time(void) {
 	// Instantiate start time
 	static double startTime;
 
@@ -294,7 +298,7 @@ int get_hyperperiod(int periods[]) {
 		major_cycle = calc_lcm(major_cycle, periods[i]/MILLION);
 	}
 
-	return major_cycle*MILLION;
+	return major_cycle;
 }
 
 // Get consumer period
@@ -307,7 +311,7 @@ int get_consumer_period(int periods[]) {
 		}
 	}
 
-	return min_period*MILLION;
+	return min_period * MILLION;
 }
 
 // Producer thread routine
@@ -316,42 +320,42 @@ void *threadProducer(void *args) {
     struct producerAttributes* producerAttr = args;
     int voi = producerAttr->voi;
     pthread_mutex_t* mutex = producerAttr->mutex;
-    pthread_mutex_t* cond = producerAttr->cond;
+    pthread_cond_t* isReleased = producerAttr->cond;
+//    pthread_mutex_t* wait = producerAttr->cond;
 
 	printf("Producer Thread %d Initialized\n", voi);
 
+	// Producer task execution
+	// -> Role: Produce data from file to send to consumer
+	// -> Each iteration represents one execution of the producer task
 	while (1) {
 		// Update the entry in the sharedData array for a given producer's array index (critical section)
 		pthread_mutex_lock(mutex);
-		/* Critical Section Start */
-		while (!producerAttr->isReleased) {
-			pthread_cond_wait(cond, mutex);
-		}
+		// Wait and signal implementation to schedule producer thread
+		pthread_cond_wait(cond, mutex);
 		// Write to shared memory segment of respective variable of interest
 		printf("Data read is: %f\n", (float) sensor_data[voi][(int) currentTime - 1]);
 		sharedData[voi] = (float) sensor_data[voi][(int) currentTime];
 
-		// Change the run status to true, we update the next releaseTime
-		updateProducerAttributes(producerAttr, true);
-
-		/* Critical Section End */
 		pthread_mutex_unlock(mutex);
 	}
+
 
 	return NULL;
 }
 
 // Consumer thread routine
 void *threadConsumer(void *arg) {
-
 	printf("Consumer Thread Initialized\n\n");
 
-	struct producerAttributes** producers = arg;
-
-	// Main Loop - Consume Data from Producer
+	// Consumer task execution
+	// -> Role: Consume data from producers
+	// -> Each iteration of loop simulates one execution of the consumer task
 	while(1) {
-		wait_clock_interrupt();
+		// Wait and signal implementation to schedule consumer thread
 		pthread_mutex_lock(&consumer_mutex);
+		pthread_cond_wait(&cond[5], &consumer_mutex);
+
 		// Print the current time and all variables of interest
 		printf("Consumer Current Time:  %f\n", currentTime);
 
@@ -383,65 +387,14 @@ void *threadConsumer(void *arg) {
 		pthread_mutex_unlock(&consumer_mutex);
 	}
 
-	// Terminate Thread and Exit
-	pthread_exit(NULL);
 	return NULL;
-}
-
-// Sorts tasksToRun array in ascending order by the producerReleaseTimes
-void sortTasksToRun() {
-	qsort(tasksToRun, NUM_PRODUCER_THREADS, sizeof(struct producerAttributes*), compareReleaseTimes);
-	return;
-}
-
-// Used for qsort function to compare left and right element releaseTimes
-int compareReleaseTimes(const void* left, const void* right){
-	const struct producerAttributes* releaseTimeLeft = (struct producerAttributes*) left;
-	const struct producerAttributes* releaseTimeRight = (struct producerAttributes*) right;
-	return (releaseTimeLeft->releaseTime - releaseTimeRight->releaseTime);
-}
-
-// Thread has run the producer for this period, we can update the period and set the status to true
-void updateProducerAttributes(struct producerAttributes* producerAttr, bool hasRun) {
-	if (hasRun) {
-		producerAttr->releaseTime += producerAttr->period/MILLION;
-		producerAttr->isReleased = false;
-	} else {
-		producerAttr->isReleased = true;
-	}
-}
-
-// TODINGUS
-static void checkProducers() {
-	bool hasChanged = false;
-	for (int i = 0; i < NUM_PRODUCER_THREADS; i++) {
-		// If task released time is less than or equal to current time and it has not already been released, we unlock it and update its status
-		if (tasksToRun[i].releaseTime <= currentTime) {
-			// Task should be released
-			if (!tasksToRun[i].isReleased) {
-
-				// We call an update on it to change its release time to the next instance, however it has not run yet
-				pthread_cond_signal(tasksToRun[i].cond);
-				updateProducerAttributes(&tasksToRun[i], false);
-				hasChanged = true;
-			}
-		} else {
-			// Exit loop since we don't need to check the next tasks
-			break;
-		}
-	}
-
-	// Only sort arr if task release times were changed
-	if (hasChanged) {
-		sortTasksToRun();
-	}
 }
 
 // TODO: Set period to base million
 // Update a producer's period
 void updateProducerPeriod(int index) {
     int period = 0;
-    printf("\nEnter period for producer thread %d: ", index);
+    printf("\nEnter period for producer thread %d (in s): ", index);
     fflush(stdout);
     scanf("%d", &period);
     if (period > 0) {
@@ -493,8 +446,88 @@ void requestUserInput() {
 	}
 }
 
-int main(void) {
 
+// Define periodic tasks struct for structured clock driven schedule
+struct periodicTasks {
+	   int taskId;
+	   int releaseTime;
+};
+
+// Define comparator for periodic tasks structs to sort tasks in schedule by release time
+int compareReleaseTimes(const void* left, const void* right) {
+	const struct periodicTasks * leftTask = (struct periodicTasks*) left;
+	const struct periodicTasks* rightTask = (struct periodicTasks*) right;
+
+	// Compare by task id if same release times
+	// -> Schedule producers before consumer
+	if(leftTask->releaseTime == rightTask->releaseTime) {
+		return leftTask->taskId - rightTask->taskId;
+	}
+
+	return leftTask->releaseTime - rightTask->releaseTime;
+}
+
+// Produce schedule before runtime
+struct periodicTasks* produceSchedule(int hyperperiod, int* numTasks) {
+	// Task array - Producers and Consumer
+	int taskPeriods[NUM_TASKS];
+	for(int i = 0; i < NUM_PRODUCER_THREADS; i++) {
+		taskPeriods[i] = (int) producerPeriods[i] / MILLION;
+	}
+	taskPeriods[NUM_PRODUCER_THREADS] = (get_consumer_period(producerPeriods) / MILLION);
+
+	//Determine number of tasks to execute in one hyperperiod
+	for(int i = 0; i < NUM_TASKS; i++) {
+	   *numTasks += hyperperiod / taskPeriods[i];
+	}
+
+	// Create schedule array
+	struct periodicTasks* schedule = malloc(*numTasks*sizeof(struct periodicTasks));
+	struct periodicTasks nextTask;
+
+	// Add each task to schedule
+	int currInd = 0, currRelease = 0;
+	for(int j = 0; j < NUM_TASKS; j++) {
+		while(currRelease < hyperperiod) {
+			nextTask.taskId = j;
+			nextTask.releaseTime = currRelease;
+			schedule[currInd] = nextTask;
+			currInd++;
+			currRelease = nextTask.releaseTime + taskPeriods[j];
+		}
+		currRelease = 0;
+	}
+
+	// Sort schedule in ascending order by release time to simplify scheduling algorithm
+	qsort(schedule, *numTasks, sizeof(struct periodicTasks), compareReleaseTimes);
+
+	return schedule;
+}
+
+// Scheduler using Structured Clock Driven Scheduling
+void clockDrivenScheduler(struct periodicTasks* schedule, int* numTasks) {
+	 // Perform scheduling every 1s signaled clock interrupt
+	 int currInd = 0;
+
+	 printf("Size: %d", *numTasks);
+	 for (int i = 0; i < *numTasks; i++) {
+		 printf("Release: %d\n", schedule[i].releaseTime);
+	 }
+
+	 while(currInd < *numTasks) {
+		 update_current_time();
+		 while(currentTime >= schedule[currInd].releaseTime && currInd < *numTasks) {
+			 // Release task at schedule[currInd] using wait and signal
+			 // -> Unlock mutex for task to schedule next task specified by schedule[currInd].taskId
+			pthread_cond_signal(&cond[schedule[currInd].taskId]);
+			currInd++;
+		 }
+
+		 wait_clock_interrupt();
+	 }
+}
+
+int main(void) {
 	// Process the dataset and store the sensor data in memory
     readDataset();
 
@@ -503,8 +536,7 @@ int main(void) {
 
 	// Create shared memory segment for the sharedData array
 	int shm_fd = shm_open("/sharedData", O_CREAT | O_RDWR, 0666);
-	if (shm_fd == -1)
-	{
+	if (shm_fd == -1) {
 		perror("Error: shm_open() failed. Exiting...");
 		exit(1);
 	}
@@ -543,17 +575,7 @@ int main(void) {
 	// Request user input for producer periods
 	requestUserInput();
 
-	// Get clock period
-	int period = get_clock_interval(producerPeriods);
-
-	// Create and activate periodic timer to synchronize threads
-	res = activate_realtime_clock(PHASE, period);
-	if (res != 0) {
-		error_handler("activate_realtime_clock()", "Failed to create and activate periodic timer!");
-	}
-
-	wait_clock_interrupt();
-
+	// Create threads
     for(int i = 0; i < NUM_PRODUCER_THREADS; i++) {
 		// Create thread arguments used in thread start routine
 		tasksToRun[i].voi = i;
@@ -572,10 +594,6 @@ int main(void) {
 		}
     }
 
-	// Initial sort
-	sortTasksToRun();
-	// Run scheduling algorithm
-//	checkProducers();
 	// Create consumer thread
 	// - Pass thread pointer to provide thread id to created thread
 	// - Pass customized attributes to create custom thread
@@ -588,33 +606,45 @@ int main(void) {
 
 	// Request user input every hyperperiod
 	int hyperperiod = get_hyperperiod(producerPeriods);
-	printf("%d\n", hyperperiod);
-	printf("%d\n", period);
+	//printf("%d\n", hyperperiod);
 
-	update_current_time();
+
 	while(1) {
-		// Run scheduling algorithm
-		// Call timer interrupt
-		wait_clock_interrupt();
-		checkProducers();
-		if(hyperperiod/MILLION <= currentTime) {
-			pthread_mutex_lock(&consumer_mutex);
-			// TODO: Save current time as another variable, stop timer thread, and create new timer when user enters a val
-			requestUserInput();
-			pthread_mutex_unlock(&consumer_mutex);
+		// Produce schedule
+		int numTasks = 0;
+		struct periodicTasks* schedule = produceSchedule(hyperperiod, &numTasks);
+
+		printf("Size: %d", numTasks);
+		// Get clock period
+		int period = get_clock_interval(producerPeriods);
+
+		// Create and activate periodic timer to synchronize threads
+		res = activate_realtime_clock(PHASE, period);
+		if (res != 0) {
+			error_handler("activate_realtime_clock()", "Failed to create and activate periodic timer!");
 		}
 
-//		// Call timer interrupt
-//		wait_clock_interrupt();
-//		printf("Current Time: %f\n", currentTime);
-//		update_current_time();
+		// Schedule tasks for one hyperperiod
+		clockDrivenScheduler(schedule, &numTasks);
+
+		// Temporary for testing
+//		printf("Completed! Exiting program...");
+		free(schedule);
+		break;
+
+		// TODO: Stop clock
+
+		// Request for user input
+		//requestUserInput();
 	}
 
-	// Unlink Shared Memory Segment
+	// Unlink shared memory segment
+	// -> Remove shared memory object
 	if (shm_unlink("/sharedData") == -1) {
 		perror("Error: shm_unlink() failed. Exiting...");
 		exit(1);
 	}
+
 
 	// Cleanup after completing program
     // Destroy attribute object and terminate main thread
