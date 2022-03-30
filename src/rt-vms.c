@@ -88,6 +88,7 @@ struct producerAttributes {
 double currentTime;
 
 //int producerPeriods[NUM_PRODUCER_THREADS] = {PERIOD, PERIOD, PERIOD, PERIOD, PERIOD};
+int defaultPeriods[NUM_PRODUCER_THREADS] = {1*MILLION, 2*MILLION, 3*MILLION, 4*MILLION, 4*MILLION};
 int producerPeriods[NUM_PRODUCER_THREADS] = {1*MILLION, 2*MILLION, 3*MILLION, 4*MILLION, 4*MILLION};
 // Mutex locks
 pthread_mutex_t mutex[NUM_PRODUCER_THREADS];
@@ -356,7 +357,7 @@ void *threadConsumer(void *arg) {
 		pthread_cond_wait(&cond[5], &consumer_mutex);
 
 		// Print the current time and all variables of interest
-		printf("Consumer Current Time:  %f\n", currentTime);
+//		printf("Consumer Current Time:  %f\n", currentTime);
 
 		// Critical section for reading the current fuel consumption data
 		if (producersAttrs[FUEL_CONSUMPTION].hasRun) {
@@ -435,6 +436,9 @@ void requestUserInput() {
 	switch(input) {
 		case 0:
 			puts("\nRunning all threads in default mode!\n");
+			for (int i = 0; i < NUM_PRODUCER_THREADS; i++) {
+				producerPeriods[i] = defaultPeriods[i];
+			}
 			break;
 		case 1:
 			for (int i = 0; i < NUM_PRODUCER_THREADS; i++) {
@@ -492,6 +496,7 @@ struct periodicTasks* produceSchedule(int hyperperiod, int* numTasks) {
 	// Task array - Producers and Consumer
 	int taskPeriods[NUM_TASKS];
 	for(int i = 0; i < NUM_PRODUCER_THREADS; i++) {
+		printf("Check: %d\n", (int) producerPeriods[i]);
 		taskPeriods[i] = (int) producerPeriods[i] / MILLION;
 	}
 	taskPeriods[NUM_PRODUCER_THREADS] = (get_consumer_period(producerPeriods) / MILLION);
@@ -500,7 +505,7 @@ struct periodicTasks* produceSchedule(int hyperperiod, int* numTasks) {
 	for(int i = 0; i < NUM_TASKS; i++) {
 	   *numTasks += hyperperiod / taskPeriods[i];
 	}
-
+	printf("Num tasks: %d", *numTasks);
 	// Create schedule array
 	struct periodicTasks* schedule = malloc(*numTasks*sizeof(struct periodicTasks));
 	struct periodicTasks nextTask;
@@ -525,13 +530,14 @@ struct periodicTasks* produceSchedule(int hyperperiod, int* numTasks) {
 }
 
 // Scheduler using Structured Clock Driven Scheduling
-void clockDrivenScheduler(struct periodicTasks* schedule, int* numTasks, int hyperperiod) {
+void clockDrivenScheduler(struct periodicTasks* schedule, int* numTasks, int elapsedTime) {
 	 // Perform scheduling every 1s signaled clock interrupt
 	 int currInd = 0;
 
 	 while(currInd < *numTasks) {
 		 update_current_time(false, 0);
-		 while((int)currentTime % hyperperiod >= schedule[currInd].releaseTime && currInd < *numTasks) {
+		 printf("Time: %f\n", currentTime);
+		 while(currentTime - elapsedTime >= schedule[currInd].releaseTime && currInd < *numTasks) {
 			// Release task at schedule[currInd] using wait and signal
 			// -> Unlock mutex for task to schedule next task specified by schedule[currInd].taskId
 			pthread_cond_signal(&cond[schedule[currInd].taskId]);
@@ -620,12 +626,12 @@ int main(void) {
 		error_handler("pthread_create()", "Failed to create consumer thread!");
 	}
 
-	// Request user input every hyperperiod
-	int hyperperiod = get_hyperperiod(producerPeriods);
-
-	int hyperperiodCount = 0;
+	int elapsedTime = 0;
 	while(1) {
 		// Produce schedule
+
+		// Request user input every hyperperiod
+		int hyperperiod = get_hyperperiod(producerPeriods);
 		int numTasks = 0;
 		struct periodicTasks* schedule = produceSchedule(hyperperiod, &numTasks);
 
@@ -637,13 +643,12 @@ int main(void) {
 		if (res != 0) {
 			error_handler("activate_realtime_clock()", "Failed to create and activate periodic timer!");
 		}
-		 update_current_time(true, hyperperiod*hyperperiodCount);
+		update_current_time(true, elapsedTime);
 
 		// Schedule tasks for one hyperperiod
-		clockDrivenScheduler(schedule, &numTasks, hyperperiod);
+		clockDrivenScheduler(schedule, &numTasks, elapsedTime);
 
-		hyperperiodCount++;
-
+		elapsedTime += hyperperiod;
 		// Garbage collection
 		free(schedule);
 
