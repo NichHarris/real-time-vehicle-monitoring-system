@@ -1,8 +1,16 @@
+/*
+	Nicholas Harris - 40111093
+	Nicholas Kawwas - 40124338
+	Matthew Sklivas - 40095150
+	Paul Westenberg - 40087074
+
+	COEN 320 - Real-Time Vehicle Monitoring System
+*/
+
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
-#include <math.h>
 
 // Include POSIX threads
 #include <pthread.h>
@@ -25,7 +33,7 @@
 // Define number of producer threads
 #define NUM_PRODUCER_THREADS 5
 
-// Define number of tasks (consumer and producers
+// Define number of tasks (consumer and producers)
 #define NUM_TASKS 6
 
 // 94380 rows containing sensor data and 5 columns of interest in the dataset
@@ -53,11 +61,9 @@
 
 // Dataset filepath (local machine)
 char filepath[] = "/data/dataset.csv";
+
 // Dataset filepath (qnx lab)
 // char[] filepath = "/public/coen320/dataset.csv"
-
-// Array used to hold data produced by the producer threads
-float produced[NUM_PRODUCER_THREADS];
 
 // Two-dimensional array representing the recorded sensor data for each variable
 float sensor_data[NUM_COLUMNS][NUM_ROWS];
@@ -65,44 +71,46 @@ float sensor_data[NUM_COLUMNS][NUM_ROWS];
 // Array in which the presently read sensor data resides
 float *sharedData;
 
-// Instantiate gloabl signal set (sigst) to specify set of signals affected by timer activation
+// Instantiate global signal set (sigst) to specify set of signals affected by timer activation
 sigset_t sigst;
 
-timer_t globalTimer;
+// Holds global timer id
+timer_t* globalTimer;
 
-// Define Global Thread Attribute to Specify Characteristics of POSIX (Portable Operating System Interface) Thread
+// Define global thread attribute to specify characteristics of POSIX (Portable Operating System Interface) thread
 pthread_attr_t attr;
 
-// Holds the data members of producers
+// Holds the data attributes of producers
 struct producerAttributes {
     int voi;
-    int period;
     pthread_mutex_t* mutex;
 	pthread_cond_t* cond;
 	bool hasRun;
 };
 
+// Define periodic tasks struct for clock driven schedule
+struct periodicTasks {
+	   int taskId;
+	   int releaseTime;
+};
+
 // Store global current time of real-time clock/timer
 double currentTime;
 
-int producerPeriods[NUM_PRODUCER_THREADS] = {PERIOD, PERIOD, PERIOD, PERIOD, PERIOD};
+// Store default global array of producer periods
 int defaultPeriods[NUM_PRODUCER_THREADS] = {PERIOD, PERIOD, PERIOD, PERIOD, PERIOD};
 
+// Store global array of producer periods input by the user
+int producerPeriods[NUM_PRODUCER_THREADS] = {PERIOD, PERIOD, PERIOD, PERIOD, PERIOD};
+
 // Mutex locks
-pthread_mutex_t mutex[NUM_PRODUCER_THREADS];
-pthread_mutex_t consumer_mutex;
+pthread_mutex_t mutex[NUM_TASKS];
 
 // Conditions
-pthread_cond_t cond[NUM_PRODUCER_THREADS + 1];
+pthread_cond_t cond[NUM_TASKS];
 
 // Array of producer threads to run, sorted by next releaseTime
 struct producerAttributes producersAttrs[NUM_PRODUCER_THREADS];
-
-// Function headers
-//void updateProducerAttributes(struct producerAttributes*, bool);
-//int compareReleaseTimes(const void*, const void*);
-//static void update_current_time(void);
-//static void checkProducers();
 
 // Process the dataset, store the measurements in the sensor_data array
 void readDataset() {
@@ -169,18 +177,30 @@ void readDataset() {
 
 // Initialize the mutexes and condition locks
 void initializeMutexes() {
-    for (int i = 0; i < NUM_PRODUCER_THREADS; i++) {
+    for (int i = 0; i < NUM_TASKS; i++) {
         pthread_mutex_init(&mutex[i], NULL);
 		pthread_cond_init(&cond[i], NULL);
     }
-    pthread_mutex_init(&consumer_mutex, NULL);
-    pthread_cond_init(&cond[5], NULL);
 }
 
 // Prints and handles errors produced at runtime
 void error_handler(char *function, char *error) {
     printf("Error: %s - %s\n", function, error);
     exit(EXIT_FAILURE);
+}
+
+// Cleanup memory
+void cleanup() {
+	// Unlink shared memory segment
+	// -> Remove shared memory object
+	if (shm_unlink("/sharedData") == -1) {
+		error_handler("shm_unlink()", "Failed to unlink shared memory segment, exiting...");
+	}
+
+	// Cleanup after completing program
+	// Destroy attribute object and terminate main thread
+	pthread_attr_destroy(&attr);
+	pthread_exit(NULL);
 }
 
 // Wait for signal activation/clock interrupt to schedule and synchronize threads adapted from timers_code.c
@@ -194,7 +214,8 @@ static void wait_clock_interrupt(void) {
 int activate_realtime_clock(uint64_t phase, int period) {
 	// Instantiate timer thread (timer_t) object with unique timer id
     timer_t timer;
-    globalTimer = timer;
+    globalTimer = &timer;
+
     // Initialize interval timer specifications (itimerspec)
 	// -> Specifies kind of timer by setting timer parameters
     // -> Timer starts with it_value (one shot value) and reloads it_interval (reload value) after timer expiration
@@ -238,7 +259,7 @@ double get_time_sec(struct timespec tv) {
 }
 
 // Update global current time variable using real time clock adapted from timers_code.c
-void update_current_time(bool update, int offset_time) {
+void update_current_time(bool isReset, int offset_time) {
 	// Instantiate start time
 	static double startTime;
 
@@ -247,7 +268,7 @@ void update_current_time(bool update, int offset_time) {
 	clock_gettime(CLOCK_REALTIME, &tv);
 
 	// Initialize start time to determine current time
-	if (startTime == 0 || update) {
+	if (startTime == 0 || isReset) {
 		startTime = get_time_sec(tv) - (double) offset_time;
 	}
 
@@ -255,28 +276,27 @@ void update_current_time(bool update, int offset_time) {
 	currentTime = get_time_sec(tv) - startTime;
 }
 
-// TODO: Ensure correct base
 // Perform greatest common divisor (GCD) using Euclidean Division
 // -> Obtain suitable clock interval for accurate timing
 int calc_gcd(int period1, int period2) {
 	if(period1 == 0)
 		return period2;
+
 	if(period2 == 0)
-			return period1;
+		return period1;
+
 	if(period2 == period1)
 		return period1;
 
 	return calc_gcd(period2 % period1, period1);
 }
 
-// TODO: Ensure correct base
 // Perform least common multiple (LCM) using GCD factor
 // -> Obtain suitable time to request user input at start of major cycle
 int calc_lcm(int p1, int p2) {
 	return (p1 * p2)/calc_gcd(p1, p2);
 }
 
-// TODO: Ensure correct base
 // Get clock interval by calculating GCD among producer thread periods
 int get_clock_interval(int periods[]) {
 	// Iterate over each period to obtain greatest common divisor, suitable clock interval
@@ -288,7 +308,6 @@ int get_clock_interval(int periods[]) {
 	return clock_interval*MILLION;
 }
 
-// TODO: Change to correct base
 // Get hyperperiod by calculating LCM among producer thread periods
 int get_hyperperiod(int periods[]) {
 	// Iterate over each period to obtain least common multiple for major cycle
@@ -315,12 +334,11 @@ int get_consumer_period(int periods[]) {
 
 // Producer thread routine
 void *threadProducer(void *args) {
-	// Get the producer thread's data members
+	// Get the producer thread's attributes
     struct producerAttributes* producerAttr = args;
     int voi = producerAttr->voi;
     pthread_mutex_t* mutex = producerAttr->mutex;
     pthread_cond_t* conditionLock = producerAttr->cond;
-//    pthread_mutex_t* wait = producerAttr->cond;
 
 	printf("Producer Thread %d Initialized\n", voi);
 
@@ -330,14 +348,16 @@ void *threadProducer(void *args) {
 	while (1) {
 		// Update the entry in the sharedData array for a given producer's array index (critical section)
 		pthread_mutex_lock(mutex);
+
 		// Wait and signal implementation to schedule producer thread
 		pthread_cond_wait(conditionLock, mutex);
+
 		// Write to shared memory segment of respective variable of interest
 		sharedData[voi] = (float) sensor_data[voi][(int) currentTime];
 		producerAttr->hasRun = true;
+
 		pthread_mutex_unlock(mutex);
 	}
-
 
 	return NULL;
 }
@@ -345,66 +365,73 @@ void *threadProducer(void *args) {
 // Consumer thread routine
 void *threadConsumer(void *arg) {
 	printf("Consumer Thread Initialized\n\n");
+
 	// Consumer task execution
 	// -> Role: Consume data from producers
 	// -> Each iteration of loop simulates one execution of the consumer task
 	while(1) {
+		pthread_mutex_lock(&mutex[5]);
+
 		// Wait and signal implementation to schedule consumer thread
-		pthread_mutex_lock(&consumer_mutex);
+		pthread_cond_wait(&cond[5], &mutex[5]);
 
-		pthread_cond_wait(&cond[5], &consumer_mutex);
-
-		// Print the current time and all variables of interest
-//		printf("Consumer Current Time:  %f\n", currentTime);
-
-		// Critical section for reading the current fuel consumption data
 		if (producersAttrs[FUEL_CONSUMPTION].hasRun) {
 			pthread_mutex_lock(producersAttrs[FUEL_CONSUMPTION].mutex);
+
+			// Critical section for reading the current fuel consumption data
 			printf("Fuel Consumption: %f\n", sharedData[FUEL_CONSUMPTION]);
 			producersAttrs[FUEL_CONSUMPTION].hasRun = false;
+
 			pthread_mutex_unlock(producersAttrs[FUEL_CONSUMPTION].mutex);
 		}
 
 		if (producersAttrs[ENGINE_SPEED].hasRun) {
-			// Critical section for reading the current engine speed data
 			pthread_mutex_lock(producersAttrs[ENGINE_SPEED].mutex);
+
+			// Critical section for reading the current engine speed data
 			printf("Engine Speed: %f\n", sharedData[ENGINE_SPEED]);
 			producersAttrs[ENGINE_SPEED].hasRun = false;
+
 			pthread_mutex_unlock(producersAttrs[ENGINE_SPEED].mutex);
 		}
 
 		if (producersAttrs[ENGINE_COOLANT_TEMP].hasRun) {
-			// Critical section for reading the current engine coolant temp data
 			pthread_mutex_lock(producersAttrs[ENGINE_COOLANT_TEMP].mutex);
+
+			// Critical section for reading the current engine coolant temp data
 			printf("Engine Coolant Temperature: %f\n", sharedData[ENGINE_COOLANT_TEMP]);
 			producersAttrs[ENGINE_COOLANT_TEMP].hasRun = false;
+
 			pthread_mutex_unlock(producersAttrs[ENGINE_COOLANT_TEMP].mutex);
 		}
 
 		if (producersAttrs[CURRENT_GEAR].hasRun) {
-			// Critical section for reading the current gear data
 			pthread_mutex_lock(producersAttrs[CURRENT_GEAR].mutex);
+
+			// Critical section for reading the current gear data
 			printf("Current Gear: %f\n", sharedData[CURRENT_GEAR]);
 			producersAttrs[CURRENT_GEAR].hasRun = false;
+
 			pthread_mutex_unlock(producersAttrs[CURRENT_GEAR].mutex);
 		}
 
 		if (producersAttrs[VEHICLE_SPEED].hasRun) {
-			// Critical section for reading the vehicle speed data
 			pthread_mutex_lock(producersAttrs[VEHICLE_SPEED].mutex);
+
+			// Critical section for reading the vehicle speed data
 			printf("Vehicle Speed: %f\n", sharedData[VEHICLE_SPEED]);
 			producersAttrs[VEHICLE_SPEED].hasRun = false;
+
 			pthread_mutex_unlock(producersAttrs[VEHICLE_SPEED].mutex);
 		}
 
 		printf("\n");
-		pthread_mutex_unlock(&consumer_mutex);
+		pthread_mutex_unlock(&mutex[5]);
 	}
 
 	return NULL;
 }
 
-// TODO: Set period to base million
 // Update a producer's period
 void updateProducerPeriod(int index) {
     int period = 0;
@@ -457,23 +484,13 @@ void requestUserInput() {
 			break;
 		case 4:
 			printf("\nProgram exit selected, ending program successfully...");
-			// Unlink shared memory segment
-			// -> Remove shared memory object
-			if (shm_unlink("/sharedData") == -1) {
-				error_handler("shm_unlink()", "Failed to unlink shared memory segment, exiting...");
-			}
+
+			cleanup();
 			exit(EXIT_SUCCESS);
 		default:
 			error_handler("requestUserInput()", "Invalid entry, ending program...");
 	}
 }
-
-
-// Define periodic tasks struct for structured clock driven schedule
-struct periodicTasks {
-	   int taskId;
-	   int releaseTime;
-};
 
 // Define comparator for periodic tasks structs to sort tasks in schedule by release time
 int compareReleaseTimes(const void* left, const void* right) {
@@ -503,19 +520,18 @@ struct periodicTasks* produceSchedule(int hyperperiod, int* numTasks) {
 	   *numTasks += hyperperiod / taskPeriods[i];
 	}
 
-	// Create schedule array
+	// Allocate memory on heap for the schedule
+	// Avoids scope issues with stack memory
 	struct periodicTasks* schedule = malloc(*numTasks*sizeof(struct periodicTasks));
-	struct periodicTasks nextTask;
 
 	// Add each task to schedule
-	int currInd = 0, currRelease = 0;
+	int i = 0, currRelease = 0;
 	for(int j = 0; j < NUM_TASKS; j++) {
 		while(currRelease < hyperperiod) {
-			nextTask.taskId = j;
-			nextTask.releaseTime = currRelease;
-			schedule[currInd] = nextTask;
-			currInd++;
-			currRelease = nextTask.releaseTime + taskPeriods[j];
+			schedule[i].taskId = j;
+			schedule[i].releaseTime = currRelease;
+			currRelease = schedule[i].releaseTime + taskPeriods[j];
+			i++;
 		}
 		currRelease = 0;
 	}
@@ -529,16 +545,16 @@ struct periodicTasks* produceSchedule(int hyperperiod, int* numTasks) {
 // Scheduler using Structured Clock Driven Scheduling
 void clockDrivenScheduler(struct periodicTasks* schedule, int* numTasks, int elapsedTime) {
 	 // Perform scheduling every 1s signaled clock interrupt
-	 int currInd = 0;
+	 int index = 0;
 
-	 while(currInd < *numTasks) {
+	 while(index < *numTasks) {
 		 update_current_time(false, 0);
 		 printf("Time: %f\n", currentTime);
-		 while(currentTime - elapsedTime >= schedule[currInd].releaseTime && currInd < *numTasks) {
+		 while(currentTime - elapsedTime >= schedule[index].releaseTime && index < *numTasks) {
 			// Release task at schedule[currInd] using wait and signal
 			// -> Unlock mutex for task to schedule next task specified by schedule[currInd].taskId
-			pthread_cond_signal(&cond[schedule[currInd].taskId]);
-			currInd++;
+			pthread_cond_signal(&cond[schedule[index].taskId]);
+			index++;
 		 }
 
 		 wait_clock_interrupt();
@@ -555,8 +571,7 @@ int main(void) {
 	// Create shared memory segment for the sharedData array
 	int shm_fd = shm_open("/sharedData", O_CREAT | O_RDWR, 0666);
 	if (shm_fd == -1) {
-		perror("Error: shm_open() failed. Exiting...");
-		exit(1);
+		error_handler("shm_open()", "Failed to create shared memory segment...");
 	}
 
 	// Truncate file to specified size for shared memory segment
@@ -565,8 +580,7 @@ int main(void) {
 	// Create new mapping in virtual address space
 	sharedData = (float*) mmap(0, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
 	if(sharedData == MAP_FAILED){
-		perror("Error: mmap() failed. Exiting...");
-		exit(1);
+		error_handler("mmap()", "Failed to map virtual address space...");
 	}
 
 	// Initialize the shared memory to 0
@@ -597,7 +611,6 @@ int main(void) {
     for(int i = 0; i < NUM_PRODUCER_THREADS; i++) {
 		// Create thread arguments used in thread start routine
     	producersAttrs[i].voi = i;
-    	producersAttrs[i].period = producerPeriods[i];
     	producersAttrs[i].mutex = &mutex[i];
     	producersAttrs[i].cond = &cond[i];
     	producersAttrs[i].hasRun = true;
@@ -620,11 +633,12 @@ int main(void) {
 
 	int elapsedTime = 0;
 	while(1) {
-		// Produce schedule
 
 		// Request user input every hyperperiod
 		int hyperperiod = get_hyperperiod(producerPeriods);
 		int numTasks = 0;
+
+		// Produce schedule
 		struct periodicTasks* schedule = produceSchedule(hyperperiod, &numTasks);
 
 		// Get clock period
@@ -640,19 +654,20 @@ int main(void) {
 		// Schedule tasks for one hyperperiod
 		clockDrivenScheduler(schedule, &numTasks, elapsedTime);
 
+		// Update total program elapsed time with hyperperiod execution time
 		elapsedTime += hyperperiod;
+
 		// Garbage collection
 		free(schedule);
 
-		timer_delete(globalTimer);
+		// Reset timer
+		timer_delete(*globalTimer);
+
 		// Request for user input
 		requestUserInput();
 	}
 
-	// Cleanup after completing program
-    // Destroy attribute object and terminate main thread
-	pthread_attr_destroy(&attr);
-	pthread_exit(NULL);
+	cleanup();
 
 	return EXIT_SUCCESS;
 }
