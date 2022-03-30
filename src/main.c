@@ -97,9 +97,6 @@ struct periodicTasks {
 // Store global current time of real-time clock/timer
 double currentTime;
 
-// Store default global array of producer periods
-int defaultPeriods[NUM_PRODUCER_THREADS] = {PERIOD, PERIOD, PERIOD, PERIOD, PERIOD};
-
 // Store global array of producer periods input by the user
 int producerPeriods[NUM_PRODUCER_THREADS] = {PERIOD, PERIOD, PERIOD, PERIOD, PERIOD};
 
@@ -462,7 +459,7 @@ void requestUserInput() {
 		case 0:
 			puts("\nRunning all threads in default mode!\n");
 			for (int i = 0; i < NUM_PRODUCER_THREADS; i++) {
-				producerPeriods[i] = defaultPeriods[i];
+				producerPeriods[i] = PERIOD;
 			}
 			break;
 		case 1:
