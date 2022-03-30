@@ -68,6 +68,8 @@ float *sharedData;
 // Instantiate gloabl signal set (sigst) to specify set of signals affected by timer activation
 sigset_t sigst;
 
+timer_t globalTimer;
+
 // Define Global Thread Attribute to Specify Characteristics of POSIX (Portable Operating System Interface) Thread
 pthread_attr_t attr;
 
@@ -186,7 +188,6 @@ void error_handler(char *function, char *error) {
 static void wait_clock_interrupt(void) {
 	// Suspend thread until timer expiration by waiting for alarm signal
 	int sig;
-	//update_current_time();
 	sigwait(&sigst, &sig);
 }
 
@@ -194,7 +195,7 @@ static void wait_clock_interrupt(void) {
 int activate_realtime_clock(uint64_t phase, int period) {
 	// Instantiate timer thread (timer_t) object with unique timer id
     timer_t timer;
-
+    globalTimer = timer;
     // Initialize interval timer specifications (itimerspec)
 	// -> Specifies kind of timer by setting timer parameters
     // -> Timer starts with it_value (one shot value) and reloads it_interval (reload value) after timer expiration
@@ -238,7 +239,7 @@ double get_time_sec(struct timespec tv) {
 }
 
 // Update global current time variable using real time clock adapted from timers_code.c
-void update_current_time(void) {
+void update_current_time(bool update, int offset_time) {
 	// Instantiate start time
 	static double startTime;
 
@@ -247,8 +248,8 @@ void update_current_time(void) {
 	clock_gettime(CLOCK_REALTIME, &tv);
 
 	// Initialize start time to determine current time
-	if (startTime == 0) {
-		startTime = get_time_sec(tv);
+	if (startTime == 0 || update) {
+		startTime = get_time_sec(tv) - (double) offset_time;
 	}
 
 	// Update current time
@@ -454,6 +455,11 @@ void requestUserInput() {
 			break;
 		case 4:
 			printf("\nProgram exit selected, ending program successfully...");
+			// Unlink shared memory segment
+			// -> Remove shared memory object
+			if (shm_unlink("/sharedData") == -1) {
+				error_handler("shm_unlink()", "Failed to unlink shared memory segment, exiting...");
+			}
 			exit(EXIT_SUCCESS);
 		default:
 			error_handler("requestUserInput()", "Invalid entry, ending program...");
@@ -519,17 +525,15 @@ struct periodicTasks* produceSchedule(int hyperperiod, int* numTasks) {
 }
 
 // Scheduler using Structured Clock Driven Scheduling
-void clockDrivenScheduler(struct periodicTasks* schedule, int* numTasks) {
+void clockDrivenScheduler(struct periodicTasks* schedule, int* numTasks, int hyperperiod) {
 	 // Perform scheduling every 1s signaled clock interrupt
 	 int currInd = 0;
 
 	 while(currInd < *numTasks) {
-		 update_current_time();
-		 printf("Num tasks: %d\n", *numTasks);
-		 while(currentTime >= schedule[currInd].releaseTime && currInd < *numTasks) {
+		 update_current_time(false, 0);
+		 while((int)currentTime % hyperperiod >= schedule[currInd].releaseTime && currInd < *numTasks) {
 			// Release task at schedule[currInd] using wait and signal
 			// -> Unlock mutex for task to schedule next task specified by schedule[currInd].taskId
-//			printf("Task: %d\n address: %pc\n", schedule[currInd].taskId, &cond[schedule[currInd].taskId]);
 			pthread_cond_signal(&cond[schedule[currInd].taskId]);
 			currInd++;
 		 }
@@ -618,9 +622,8 @@ int main(void) {
 
 	// Request user input every hyperperiod
 	int hyperperiod = get_hyperperiod(producerPeriods);
-	//printf("%d\n", hyperperiod);
 
-
+	int hyperperiodCount = 0;
 	while(1) {
 		// Produce schedule
 		int numTasks = 0;
@@ -634,28 +637,20 @@ int main(void) {
 		if (res != 0) {
 			error_handler("activate_realtime_clock()", "Failed to create and activate periodic timer!");
 		}
+		 update_current_time(true, hyperperiod*hyperperiodCount);
 
 		// Schedule tasks for one hyperperiod
-		clockDrivenScheduler(schedule, &numTasks);
+		clockDrivenScheduler(schedule, &numTasks, hyperperiod);
 
-		// Temporary for testing
-//		printf("Completed! Exiting program...");
+		hyperperiodCount++;
+
+		// Garbage collection
 		free(schedule);
-		break;
 
-		// TODO: Stop clock
-
+		timer_delete(globalTimer);
 		// Request for user input
-//		requestUserInput();
+		requestUserInput();
 	}
-
-	// Unlink shared memory segment
-	// -> Remove shared memory object
-	if (shm_unlink("/sharedData") == -1) {
-		perror("Error: shm_unlink() failed. Exiting...");
-		exit(1);
-	}
-
 
 	// Cleanup after completing program
     // Destroy attribute object and terminate main thread
