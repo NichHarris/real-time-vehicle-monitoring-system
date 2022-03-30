@@ -163,7 +163,6 @@ int main(int argc, char **argv) {
 // 2- Client Thread Makes Connnection by Attaching to Channel
 // 3- Client Call MsgSend() to Send through Channel over Connection
 
-
 /*
 Functions Defined
 - MsgSend() - Used by Client Threads to Send Messages to Server
