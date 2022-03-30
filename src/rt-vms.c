@@ -85,8 +85,8 @@ struct producerAttributes {
 // Store global current time of real-time clock/timer
 double currentTime;
 
-int producerPeriods[NUM_PRODUCER_THREADS] = {PERIOD, PERIOD, PERIOD, PERIOD, PERIOD};
-//int producerPeriods[NUM_PRODUCER_THREADS] = {2*MILLION, 4*MILLION, 8*MILLION, 12*MILLION, 16*MILLION};
+//int producerPeriods[NUM_PRODUCER_THREADS] = {PERIOD, PERIOD, PERIOD, PERIOD, PERIOD};
+int producerPeriods[NUM_PRODUCER_THREADS] = {1*MILLION, 2*MILLION, 3*MILLION, 4*MILLION, 4*MILLION};
 // Mutex locks
 pthread_mutex_t mutex[NUM_PRODUCER_THREADS];
 pthread_mutex_t consumer_mutex;
@@ -525,6 +525,7 @@ void clockDrivenScheduler(struct periodicTasks* schedule, int* numTasks) {
 
 	 while(currInd < *numTasks) {
 		 update_current_time();
+		 printf("Num tasks: %d\n", *numTasks);
 		 while(currentTime >= schedule[currInd].releaseTime && currInd < *numTasks) {
 			// Release task at schedule[currInd] using wait and signal
 			// -> Unlock mutex for task to schedule next task specified by schedule[currInd].taskId
@@ -640,7 +641,7 @@ int main(void) {
 		// Temporary for testing
 //		printf("Completed! Exiting program...");
 		free(schedule);
-//		break;
+		break;
 
 		// TODO: Stop clock
 
