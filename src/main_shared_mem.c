@@ -424,7 +424,7 @@ int main (int argc, char *argv[]) {
 		sharedData[i] = 0;
 	}
 
-	struct producerAttributes *args[NUM_PRODUCER_THREADS + 1];
+	struct producerAttributes *args[NUM_PRODUCER_THREADS];
 
     // Instantiate Consumer and Producer POSIX Threads
 	pthread_t consumer, producers[NUM_PRODUCER_THREADS];
@@ -484,12 +484,12 @@ int main (int argc, char *argv[]) {
 
     // Set the attributes of each producer thread
     for (int i = 0; i < NUM_PRODUCER_THREADS; i++) {
-        args[i]->voi = i;
-        args[i]->period = producerPeriods[i];
-        args[i]->mutex = &mutex[i];
+        tasksToRun[i]->voi = i;
+        tasksToRun[i]->period = producerPeriods[i];
+        tasksToRun[i]->mutex = &mutex[i];
         // args[i]->cond = &cond[i];
-		args[i]->releaseTime = 0;
-		args[i]->isReleased = FALSE;
+		tasksToRun[i]->releaseTime = 0;
+		tasksToRun[i]->isReleased = FALSE;
     }
 
     // Create Producers Threads
