@@ -1,9 +1,0 @@
-{
-  "files.associations": {
-    "iostream": "cpp",
-    "string": "cpp",
-    "fstream": "cpp",
-    "fcntl.h": "c"
-  },
-  "python.pythonPath": "C:\\Python27\\python.exe"
-}
