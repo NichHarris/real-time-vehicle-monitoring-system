@@ -79,17 +79,15 @@ struct producerAttributes {
     int period;
     pthread_mutex_t* mutex;
 	pthread_cond_t* cond;
-	bool isReleased;
 	bool hasRun;
-	int releaseTime;
 };
 
 // Store global current time of real-time clock/timer
 double currentTime;
 
-//int producerPeriods[NUM_PRODUCER_THREADS] = {PERIOD, PERIOD, PERIOD, PERIOD, PERIOD};
-int defaultPeriods[NUM_PRODUCER_THREADS] = {1*MILLION, 2*MILLION, 3*MILLION, 4*MILLION, 4*MILLION};
-int producerPeriods[NUM_PRODUCER_THREADS] = {1*MILLION, 2*MILLION, 3*MILLION, 4*MILLION, 4*MILLION};
+int producerPeriods[NUM_PRODUCER_THREADS] = {PERIOD, PERIOD, PERIOD, PERIOD, PERIOD};
+int defaultPeriods[NUM_PRODUCER_THREADS] = {PERIOD, PERIOD, PERIOD, PERIOD, PERIOD};
+
 // Mutex locks
 pthread_mutex_t mutex[NUM_PRODUCER_THREADS];
 pthread_mutex_t consumer_mutex;
@@ -496,7 +494,6 @@ struct periodicTasks* produceSchedule(int hyperperiod, int* numTasks) {
 	// Task array - Producers and Consumer
 	int taskPeriods[NUM_TASKS];
 	for(int i = 0; i < NUM_PRODUCER_THREADS; i++) {
-		printf("Check: %d\n", (int) producerPeriods[i]);
 		taskPeriods[i] = (int) producerPeriods[i] / MILLION;
 	}
 	taskPeriods[NUM_PRODUCER_THREADS] = (get_consumer_period(producerPeriods) / MILLION);
@@ -505,7 +502,7 @@ struct periodicTasks* produceSchedule(int hyperperiod, int* numTasks) {
 	for(int i = 0; i < NUM_TASKS; i++) {
 	   *numTasks += hyperperiod / taskPeriods[i];
 	}
-	printf("Num tasks: %d", *numTasks);
+
 	// Create schedule array
 	struct periodicTasks* schedule = malloc(*numTasks*sizeof(struct periodicTasks));
 	struct periodicTasks nextTask;
@@ -596,8 +593,6 @@ int main(void) {
 	// Request user input for producer periods
 	requestUserInput();
 
-
-	// TODO Change
 	// Create threads
     for(int i = 0; i < NUM_PRODUCER_THREADS; i++) {
 		// Create thread arguments used in thread start routine
@@ -605,8 +600,6 @@ int main(void) {
     	producersAttrs[i].period = producerPeriods[i];
     	producersAttrs[i].mutex = &mutex[i];
     	producersAttrs[i].cond = &cond[i];
-    	producersAttrs[i].releaseTime = 0;
-    	producersAttrs[i].isReleased = false;
     	producersAttrs[i].hasRun = true;
 
 		// Create producer threads
@@ -620,7 +613,6 @@ int main(void) {
 	// - Pass thread pointer to provide thread id to created thread
 	// - Pass customized attributes to create custom thread
 	// - Pass start routine and arguments to routine
-	// TODO: Pass lcm of periods to be the timing of consumer
 	res = pthread_create(&consumer, &attr, threadConsumer, NULL);
 	if (res != 0) {
 		error_handler("pthread_create()", "Failed to create consumer thread!");
