@@ -48,7 +48,7 @@
 
 // Define phase and period for all tasks/threads
 // Starting at 0s, occuring every 5s (default)
-#define PHASE 0000000
+#define PHASE 1000000
 #define PERIOD 5000000
 
 // Dataset filepath (local machine)
@@ -78,15 +78,15 @@ struct producerAttributes {
     pthread_mutex_t* mutex;
 	pthread_cond_t* cond;
 	bool isReleased;
+	bool hasRun;
 	int releaseTime;
 };
 
 // Store global current time of real-time clock/timer
 double currentTime;
 
-// Array which holds the period of each producer
 int producerPeriods[NUM_PRODUCER_THREADS] = {PERIOD, PERIOD, PERIOD, PERIOD, PERIOD};
-
+//int producerPeriods[NUM_PRODUCER_THREADS] = {2*MILLION, 4*MILLION, 8*MILLION, 12*MILLION, 16*MILLION};
 // Mutex locks
 pthread_mutex_t mutex[NUM_PRODUCER_THREADS];
 pthread_mutex_t consumer_mutex;
@@ -95,7 +95,6 @@ pthread_mutex_t consumer_mutex;
 pthread_cond_t cond[NUM_PRODUCER_THREADS + 1];
 
 // Array of producer threads to run, sorted by next releaseTime
-struct producerAttributes tasksToRun[NUM_PRODUCER_THREADS];
 struct producerAttributes producersAttrs[NUM_PRODUCER_THREADS];
 
 // Function headers
@@ -320,7 +319,7 @@ void *threadProducer(void *args) {
     struct producerAttributes* producerAttr = args;
     int voi = producerAttr->voi;
     pthread_mutex_t* mutex = producerAttr->mutex;
-    pthread_cond_t* isReleased = producerAttr->cond;
+    pthread_cond_t* conditionLock = producerAttr->cond;
 //    pthread_mutex_t* wait = producerAttr->cond;
 
 	printf("Producer Thread %d Initialized\n", voi);
@@ -332,11 +331,10 @@ void *threadProducer(void *args) {
 		// Update the entry in the sharedData array for a given producer's array index (critical section)
 		pthread_mutex_lock(mutex);
 		// Wait and signal implementation to schedule producer thread
-		pthread_cond_wait(cond, mutex);
+		pthread_cond_wait(conditionLock, mutex);
 		// Write to shared memory segment of respective variable of interest
-		printf("Data read is: %f\n", (float) sensor_data[voi][(int) currentTime - 1]);
 		sharedData[voi] = (float) sensor_data[voi][(int) currentTime];
-
+		producerAttr->hasRun = true;
 		pthread_mutex_unlock(mutex);
 	}
 
@@ -347,43 +345,59 @@ void *threadProducer(void *args) {
 // Consumer thread routine
 void *threadConsumer(void *arg) {
 	printf("Consumer Thread Initialized\n\n");
-
 	// Consumer task execution
 	// -> Role: Consume data from producers
 	// -> Each iteration of loop simulates one execution of the consumer task
 	while(1) {
 		// Wait and signal implementation to schedule consumer thread
 		pthread_mutex_lock(&consumer_mutex);
+
 		pthread_cond_wait(&cond[5], &consumer_mutex);
 
 		// Print the current time and all variables of interest
 		printf("Consumer Current Time:  %f\n", currentTime);
 
 		// Critical section for reading the current fuel consumption data
-		pthread_mutex_lock(producersAttrs[FUEL_CONSUMPTION].mutex);
-		printf("Fuel Consumption: %f\n", sharedData[FUEL_CONSUMPTION]);
-		pthread_mutex_unlock(producersAttrs[FUEL_CONSUMPTION].mutex);
+		if (producersAttrs[FUEL_CONSUMPTION].hasRun) {
+			pthread_mutex_lock(producersAttrs[FUEL_CONSUMPTION].mutex);
+			printf("Fuel Consumption: %f\n", sharedData[FUEL_CONSUMPTION]);
+			producersAttrs[FUEL_CONSUMPTION].hasRun = false;
+			pthread_mutex_unlock(producersAttrs[FUEL_CONSUMPTION].mutex);
+		}
 
-		// Critical section for reading the current engine speed data
-		pthread_mutex_lock(producersAttrs[ENGINE_SPEED].mutex);
-		printf("Engine Speed: %f\n", sharedData[ENGINE_SPEED]);
-		pthread_mutex_unlock(producersAttrs[ENGINE_SPEED].mutex);
+		if (producersAttrs[ENGINE_SPEED].hasRun) {
+			// Critical section for reading the current engine speed data
+			pthread_mutex_lock(producersAttrs[ENGINE_SPEED].mutex);
+			printf("Engine Speed: %f\n", sharedData[ENGINE_SPEED]);
+			producersAttrs[ENGINE_SPEED].hasRun = false;
+			pthread_mutex_unlock(producersAttrs[ENGINE_SPEED].mutex);
+		}
 
-		// Critical section for reading the current engine coolant temp data
-		pthread_mutex_lock(producersAttrs[ENGINE_COOLANT_TEMP].mutex);
-		printf("Engine Coolant Temperature: %f\n", sharedData[ENGINE_COOLANT_TEMP]);
-		pthread_mutex_unlock(producersAttrs[ENGINE_COOLANT_TEMP].mutex);
+		if (producersAttrs[ENGINE_COOLANT_TEMP].hasRun) {
+			// Critical section for reading the current engine coolant temp data
+			pthread_mutex_lock(producersAttrs[ENGINE_COOLANT_TEMP].mutex);
+			printf("Engine Coolant Temperature: %f\n", sharedData[ENGINE_COOLANT_TEMP]);
+			producersAttrs[ENGINE_COOLANT_TEMP].hasRun = false;
+			pthread_mutex_unlock(producersAttrs[ENGINE_COOLANT_TEMP].mutex);
+		}
 
-		// Critical section for reading the current gear data
-		pthread_mutex_lock(producersAttrs[CURRENT_GEAR].mutex);
-		printf("Current Gear: %f\n", sharedData[CURRENT_GEAR]);
-		pthread_mutex_unlock(producersAttrs[CURRENT_GEAR].mutex);
+		if (producersAttrs[CURRENT_GEAR].hasRun) {
+			// Critical section for reading the current gear data
+			pthread_mutex_lock(producersAttrs[CURRENT_GEAR].mutex);
+			printf("Current Gear: %f\n", sharedData[CURRENT_GEAR]);
+			producersAttrs[CURRENT_GEAR].hasRun = false;
+			pthread_mutex_unlock(producersAttrs[CURRENT_GEAR].mutex);
+		}
 
-		// Critical section for reading the vehicle speed data
-		pthread_mutex_lock(producersAttrs[VEHICLE_SPEED].mutex);
-		printf("Vehicle Speed: %f\n", sharedData[VEHICLE_SPEED]);
-		pthread_mutex_unlock(producersAttrs[VEHICLE_SPEED].mutex);
+		if (producersAttrs[VEHICLE_SPEED].hasRun) {
+			// Critical section for reading the vehicle speed data
+			pthread_mutex_lock(producersAttrs[VEHICLE_SPEED].mutex);
+			printf("Vehicle Speed: %f\n", sharedData[VEHICLE_SPEED]);
+			producersAttrs[VEHICLE_SPEED].hasRun = false;
+			pthread_mutex_unlock(producersAttrs[VEHICLE_SPEED].mutex);
+		}
 
+		printf("\n");
 		pthread_mutex_unlock(&consumer_mutex);
 	}
 
@@ -509,16 +523,12 @@ void clockDrivenScheduler(struct periodicTasks* schedule, int* numTasks) {
 	 // Perform scheduling every 1s signaled clock interrupt
 	 int currInd = 0;
 
-	 printf("Size: %d", *numTasks);
-	 for (int i = 0; i < *numTasks; i++) {
-		 printf("Release: %d\n", schedule[i].releaseTime);
-	 }
-
 	 while(currInd < *numTasks) {
 		 update_current_time();
 		 while(currentTime >= schedule[currInd].releaseTime && currInd < *numTasks) {
-			 // Release task at schedule[currInd] using wait and signal
-			 // -> Unlock mutex for task to schedule next task specified by schedule[currInd].taskId
+			// Release task at schedule[currInd] using wait and signal
+			// -> Unlock mutex for task to schedule next task specified by schedule[currInd].taskId
+//			printf("Task: %d\n address: %pc\n", schedule[currInd].taskId, &cond[schedule[currInd].taskId]);
 			pthread_cond_signal(&cond[schedule[currInd].taskId]);
 			currInd++;
 		 }
@@ -575,22 +585,23 @@ int main(void) {
 	// Request user input for producer periods
 	requestUserInput();
 
+
+	// TODO Change
 	// Create threads
     for(int i = 0; i < NUM_PRODUCER_THREADS; i++) {
 		// Create thread arguments used in thread start routine
-		tasksToRun[i].voi = i;
-		tasksToRun[i].period = producerPeriods[i];
-		tasksToRun[i].mutex = &mutex[i];
-		tasksToRun[i].cond = &cond[i];
-		tasksToRun[i].releaseTime = 0;
-		tasksToRun[i].isReleased = false;
+    	producersAttrs[i].voi = i;
+    	producersAttrs[i].period = producerPeriods[i];
+    	producersAttrs[i].mutex = &mutex[i];
+    	producersAttrs[i].cond = &cond[i];
+    	producersAttrs[i].releaseTime = 0;
+    	producersAttrs[i].isReleased = false;
+    	producersAttrs[i].hasRun = true;
 
 		// Create producer threads
-		res = pthread_create(&producers[i], &attr, threadProducer, (void *) &tasksToRun[i]);
+		res = pthread_create(&producers[i], &attr, threadProducer, (void *) &producersAttrs[i]);
 		if (res != 0) {
 			error_handler("pthread_create()", "Failed to create producer thread");
-		} else {
-			producersAttrs[i] = tasksToRun[i];
 		}
     }
 
@@ -614,12 +625,11 @@ int main(void) {
 		int numTasks = 0;
 		struct periodicTasks* schedule = produceSchedule(hyperperiod, &numTasks);
 
-		printf("Size: %d", numTasks);
 		// Get clock period
 		int period = get_clock_interval(producerPeriods);
 
 		// Create and activate periodic timer to synchronize threads
-		res = activate_realtime_clock(PHASE, period);
+		res = activate_realtime_clock(period, period);
 		if (res != 0) {
 			error_handler("activate_realtime_clock()", "Failed to create and activate periodic timer!");
 		}
@@ -630,12 +640,12 @@ int main(void) {
 		// Temporary for testing
 //		printf("Completed! Exiting program...");
 		free(schedule);
-		break;
+//		break;
 
 		// TODO: Stop clock
 
 		// Request for user input
-		//requestUserInput();
+//		requestUserInput();
 	}
 
 	// Unlink shared memory segment
