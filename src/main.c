@@ -183,6 +183,7 @@ void initializeMutexes() {
 // Prints and handles errors produced at runtime
 void error_handler(char *function, char *error) {
     printf("Error: %s - %s\n", function, error);
+    printf("Exiting program...\n");
     exit(EXIT_FAILURE);
 }
 
@@ -434,7 +435,7 @@ void *threadConsumer(void *arg) {
 // Update a producer's period
 void updateProducerPeriod(int index) {
     int period = 0;
-    printf("\nEnter period for producer thread %d (in s): ", index);
+    printf("\nEnter period for producer thread %d (in s): \n", index);
     fflush(stdout);
     scanf("%d", &period);
     if (period > 0) {
@@ -456,7 +457,6 @@ void requestUserInput() {
 	puts("[4] - Exit");
 	puts("Enter value of selection: ");
 	scanf("%d", &input);
-
 	switch(input) {
 		case 0:
 			puts("\nRunning all threads in default mode!\n");
