@@ -60,7 +60,7 @@
 #define PERIOD 5000000
 
 // Dataset filepath (local machine)
-char filepath[] = "/data/dataset.csv";
+const char filepath[] = "/data/dataset.csv";
 
 // Dataset filepath (qnx lab)
 // char[] filepath = "/public/coen320/dataset.csv"
