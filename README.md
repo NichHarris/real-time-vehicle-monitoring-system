@@ -34,7 +34,7 @@ Firsly, it is expected the user has a valid and appropriate license for QNX vers
 1. Create a new launch target
 	- Select `QNX Virtual Machine Target`
 	- VM platform `VMWare` or `VBox`
-	- CPU Arch `x867_64`
+	- CPU Arch `x86_64`
 	- IP Address:
 		- Search `Network Connections` on Windows
 		- Under the selected VM Platform network adapter, navigate to IPV4 properties. The IP present will the the one entered into QNX
