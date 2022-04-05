@@ -62,4 +62,4 @@ Firsly, it is expected the user has a valid and appropriate license for QNX vers
 		- Selection 3: This will continue the execution with the parameters previously set, or with the default if it is the first execution.
 		- Selection 4: The program will exit
 
-	- **Note: It is important to only enter valid integer numbers during the prompts, C does not have input validation and entering a value of 2.0 instead of 2 will cause serious execution issues. Due to the input buffer and that C uses IEEE 754 for float values, the value 2.0 will not be converted to 2. ** 
+	- __Note: It is important to only enter valid integer numbers during the prompts, C does not have input validation and entering a value of 2.0 instead of 2 will cause serious execution issues. Due to the input buffer and that C uses IEEE 754 for float values, the value 2.0 will not be converted to 2.__ 
