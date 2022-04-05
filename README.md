@@ -50,7 +50,14 @@ Firsly, it is expected the user has a valid and appropriate license for QNX vers
 	- Enter a project name `main` and select language `C` and CPU Arch `x86_64`
 	- Replace the `main.c` file created with the one included with the project
 
-4. Running the project
+4. Importing the dataset
+	- Under `Run` select `Run Configurations`
+	- Select `QNX File Transfer` -> `New Configuration`
+	- Select `Add` and `Upload` and 
+	- Include the path to the `dataset.csv` file under `Host File: `
+	- Under `Target File: ` include `IPAddress:/data/` where IPAddress if the IP you use for your project
+
+5. Running the project
 	- Click the run button
 	- The console should prompt the user with the `Select program setup options` menu
 	- The user has the ability to select different operating modes throughout the execution of the program
