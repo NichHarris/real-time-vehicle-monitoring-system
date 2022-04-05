@@ -55,8 +55,11 @@ Firsly, it is expected the user has a valid and appropriate license for QNX vers
 	- Select `QNX File Transfer` -> `New Configuration`
 	- Select `Add` and `Upload` and 
 	- Include the path to the `dataset.csv` file under `Host File: `
-	- Under `Target File: ` include `IPAddress:/data/` where IPAddress if the IP you use for your project
-
+	- Under `Target File: ` include `IPAddress:/data/` where IPAddress is the IP you are using for your project
+	- Run this configuration from the main window, selecting the run button, allow some time for the file to upload
+	- In the VM window, type `ls`, the directory created called `data` should be present.
+	- Run the command `cd data/` and then `ls` again, the file `dataset.csv` should be present
+	
 5. Running the project
 	- Click the run button
 	- The console should prompt the user with the `Select program setup options` menu
